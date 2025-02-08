@@ -1,0 +1,22 @@
+---
+description: 
+globs:  **/*.gradle  -,**/*.gradle.kts   ,**/gradle.properties   , **/settings.gradle"   , **/settings.gradle.kts
+---
+---
+description:  Rules and best practices for Gradle build files
+globs:   **/*.gradle  -,**/*.gradle.kts   ,**/gradle.properties   , **/settings.gradle"   , **/settings.gradle.kts
+---
+YOU MAY NOT CHANGE these files unless GIVE EXPLICIT PERMISSION
+# Gradle Build Rules
+
+## Version Requirements
+- Flutter requires Gradle versions between 7.3 through 7.6.1 inclusive
+- Android Gradle Plugin (AGP) should be compatible with chosen Gradle version
+- Kotlin version should be compatible with chosen AGP version
+
+## Block Ordering
+- `pluginManagement {}` must be the first block in settings.gradle
+- Only `buildscript {}`, `pluginManagement {}`, and other `plugins {}` blocks allowed before main `plugins {}` block
+- `repositories {}` should be defined before dependencies
+- `buildCache {}` must be inside `pluginManagement {}` block in settings.gradle, not as a standalone block
+- Build scan plugin must be applied before other configuration blocks in build.gradle

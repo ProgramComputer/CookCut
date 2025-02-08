@@ -1,0 +1,113 @@
+---
+description: Enforce Flutter and Dart coding standards across all Dart files (both application and tests) to ensure high-quality code. This rule addresses null safety, widget composition, effective dependency injection, and coding patterns in line with Material 3 design principles and Flutter best practices.
+globs: lib/**/*.dart, test/**/*.dart
+---
+
+## Flutter & Dart Code Quality
+
+This rule ensures:
+
+- **Project Structure:**
+  - Follow clean architecture principles:
+    ```
+    lib/
+      core/
+        constants/
+        theme/
+        utils/
+        widgets/
+      features/
+        feature_name/
+          data/
+            datasources/
+            models/
+            repositories/
+          domain/
+            entities/
+            repositories/
+            usecases/
+          presentation/
+            bloc/
+            pages/
+            widgets/
+      l10n/
+      main.dart
+    test/
+      unit/
+      widget/
+      integration/
+    ```
+  - Maintain flexibility to adapt to existing structures
+  - Keep consistent organization within features
+  - Follow proper file naming conventions
+  - Implement proper dependency boundaries
+
+- **Null Safety:**
+  - All Dart files must fully adhere to Dart's null safety practices
+  - Use proper null-aware operators
+  - Implement proper null checks
+  - Follow sound null safety principles
+
+- **Clean Code & Widget Composition:**
+  - Keep widgets small and focused
+  - Use `const` constructors when possible
+  - Follow proper widget lifecycle methods
+  - Implement proper error boundaries
+  - Use proper performance optimization techniques
+  - Follow proper accessibility guidelines
+
+- **Architecture & Patterns:**
+  - Implement clean architecture with BLoC pattern
+  - Follow proper state management principles
+  - Use proper dependency injection (GetIt)
+  - Implement proper routing using GoRouter
+  - Follow proper repository pattern
+  - Use proper use case implementation
+
+- **Error Handling:**
+  - Implement proper error handling with Either type
+  - Use proper exception handling
+  - Implement proper error reporting
+  - Follow proper error recovery patterns
+  - Use proper error boundaries
+
+- **Testing:**
+  - Write unit tests for business logic
+  - Implement widget tests for UI components
+  - Use integration tests for feature testing
+  - Implement proper mocking strategies
+  - Use proper test coverage tools
+  - Follow proper test naming conventions
+  - Implement proper CI/CD testing
+
+- **Performance:**
+  - Use proper image caching
+  - Implement proper list view optimization
+  - Use proper build methods optimization
+  - Follow proper state management patterns
+  - Implement proper memory management
+  - Use proper platform channels when needed
+  - Follow proper compilation optimization techniques
+
+- **Asset Management:**
+  - Follow proper asset organization
+  - Use proper image resolution handling
+  - Implement proper font management
+  - Follow proper localization techniques
+  - Use proper resource naming conventions
+
+- **Package Management:**
+  - Always use `flutter pub add [package_name]` to add new dependencies
+  - Use `flutter pub add [package_name] --dev` for dev dependencies
+  - Keep dependencies up to date with `flutter pub upgrade`
+  - Document any specific version requirements in comments
+  - Follow proper version constraint practices
+  - Maintain clean pubspec.yaml organization
+
+- **Documentation & Quality:**
+  - Follow proper documentation standards
+  - Use proper inline documentation
+  - Implement proper API documentation
+  - Follow proper code formatting
+  - Use proper linting rules
+  - Follow proper version control practices 

@@ -1,0 +1,81 @@
+---
+description: Enforce Kotlin and Android native coding standards across all Android source files to ensure maintainability, performance, security, and alignment with modern Android development practices
+globs: android/**/*.kt
+---
+
+## Android Kotlin Best Practices
+
+This rule includes:
+
+- **Kotlin Idioms:**
+  - Use idiomatic Kotlin features (data classes, extension functions, etc.)
+  - Leverage coroutines for asynchronous operations
+  - Use flow for reactive programming
+  - Apply smart casting and null safety features
+  - Utilize sealed classes for state management
+
+- **Firebase Integration:**
+  - Follow Firebase best practices for initialization
+  - Implement proper offline persistence
+  - Use Firebase Authentication securely
+  - Implement proper Cloud Messaging (FCM) handling
+  - Follow Firestore security rules best practices
+  - Optimize Firebase Performance Monitoring
+  - Implement proper Crashlytics logging
+
+- **Security:**
+  - Secure data storage using EncryptedSharedPreferences
+  - Implement proper biometric authentication
+  - Handle runtime permissions correctly
+  - Use Android Keystore for sensitive data
+  - Implement proper certificate pinning
+  - Follow Android security best practices
+  - Implement proper ProGuard/R8 rules
+
+- **Performance:**
+  - Optimize app startup time
+  - Follow Android vitals guidelines
+  - Implement proper WorkManager for background tasks
+  - Use efficient data structures and algorithms
+  - Optimize battery usage
+  - Follow memory management best practices
+  - Implement proper caching strategies
+
+- **Architecture:**
+  - Follow Clean Architecture principles
+  - Implement proper dependency injection (Hilt/Koin)
+  - Use Android Architecture Components
+  - Follow SOLID principles
+  - Implement proper repository pattern
+  - Use proper ViewModels and LiveData/Flow
+
+- **Native Features:**
+  - Handle device rotation properly
+  - Implement proper deep linking
+  - Handle configuration changes
+  - Support different screen sizes
+  - Implement proper app shortcuts
+  - Handle system back press properly
+  - Support dark/light theme
+
+- **Testing:**
+  - Write unit tests for business logic
+  - Implement UI tests with Espresso
+  - Use proper mocking strategies
+  - Implement proper integration tests
+  - Follow TDD practices where applicable
+
+- **Gradle & Dependencies:**
+  - Follow proper Gradle configuration
+  - Use version catalogs
+  - Implement proper module structure
+  - Optimize build speed
+  - Follow proper dependency management
+  - Use proper signing configurations
+
+- **Documentation:**
+  - Follow KDoc standards
+  - Document public APIs
+  - Maintain proper changelog
+  - Document architecture decisions
+  - Follow proper Git commit messages 

@@ -1,0 +1,16 @@
+---
+description: Enforce PostgreSQL SQL formatting and best practices. This rule ensures that SQL files follow standardized formatting, query optimization techniques, and database security best practices.
+globs: **/*.sql
+---
+
+## PostgreSQL SQL Best Practices
+
+This rule ensures:
+
+- **Standard SQL Formatting:** Use consistent indentation, capitalization of SQL keywords, and clear clause separation.
+- **Query Optimization:** Write efficient queries by using proper indexing, JOIN operations, subqueries, and leveraging PostgreSQL's window functions or CTEs where beneficial.
+- **Consistent Naming Conventions:** Adopt a uniform naming convention (e.g., snake_case for tables, columns, indexes, and constraints).
+- **Utilizing PostgreSQL Features:** When possible, leverage PostgreSQL-specific features such as JSONB fields, array types, and specialized functions to optimize performance.
+- **Security:** Prevent SQL injection by consistently using parameterized queries and proper sanitation of dynamic inputs.
+- **Migration & Versioning:** Maintain structured and version-controlled migration scripts with detailed comments.
+- **Linting & Tools:** Encourage the use of SQL linting tools (e.g., sqlfluff) to automatically enforce standards and catch potential issues. 

@@ -1,0 +1,8 @@
+android/settings.gradle
+android/build.gradle
+android/gradle.properties
+android/local.properties
+android/app/build.gradle
+android/gradlew
+android/gradlew.bat
+android/gradle/wrapper/gradle-wrapper.properties

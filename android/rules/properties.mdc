@@ -1,0 +1,14 @@
+---
+description: Gradle and Java properties configuration
+globs:
+  - "**/*.properties"
+---
+
+# Properties Configuration
+
+## Java Home Configuration
+org.gradle.java.home=C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.14.7-hotspot
+
+**IMPORTANT: JAVA HOME MUST BE SET**
+
+This configuration specifies the Java home directory for Gradle to use when building the project.
