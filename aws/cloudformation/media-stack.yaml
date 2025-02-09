@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CookCut Assets Infrastructure Stack'
+
+Resources:
+  MediaBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: cookcut-assets-dev
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD']
+            AllowedOrigins: ['*']
+            ExposedHeaders:
+              - 'ETag'
+              - 'x-amz-server-side-encryption'
+              - 'x-amz-request-id'
+              - 'x-amz-id-2'
+            MaxAge: 3000
+
+  MediaBucketPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: cookcut-assets-access
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:DeleteObject'
+            Resource:
+              - !Sub 'arn:aws:s3:::${MediaBucket}/users/*'
+              - !Sub 'arn:aws:s3:::${MediaBucket}/projects/*'
+            # Note: Firebase auth and access control is handled at the application level
+            # through Cloud Functions (see functions/src/media.ts)
+
+  CloudFrontOriginAccessIdentity:
+    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 'OAI for CookCut Assets'
+
+  MediaDistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt MediaBucket.DomainName
+            Id: S3-cookcut-assets
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+        Enabled: true
+        Comment: 'CloudFront Distribution for CookCut Assets'
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+            - PUT
+            - POST
+            - PATCH
+            - DELETE
+          CachedMethods:
+            - GET
+            - HEAD
+          TargetOriginId: S3-cookcut-assets
+          ForwardedValues:
+            QueryString: true
+            Cookies:
+              Forward: none
+            Headers:
+              - Origin
+              - Access-Control-Request-Headers
+              - Access-Control-Request-Method
+          ViewerProtocolPolicy: redirect-to-https
+          MinTTL: 0
+          DefaultTTL: 86400
+          MaxTTL: 31536000
+          Compress: true
+        PriceClass: PriceClass_All
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        HttpVersion: http2
+        IPV6Enabled: true
+
+Outputs:
+  BucketName:
+    Description: 'Name of the S3 bucket'
+    Value: !Ref MediaBucket
+  
+  DistributionId:
+    Description: 'ID of the CloudFront distribution'
+    Value: !Ref MediaDistribution
+  
+  DistributionDomainName:
+    Description: 'Domain name of the CloudFront distribution'
+    Value: !GetAtt MediaDistribution.DomainName 

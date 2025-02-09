@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Group everything in the center -->
+  <g transform="translate(56, 76) scale(0.8)">
+    <!-- Video Frame -->
+    <rect x="112" y="152" width="288" height="208" rx="20" 
+          fill="white" stroke="#2A2A2A" stroke-width="16"/>
+    
+    <!-- Chef's Hat -->
+    <path d="M256 140
+             C 200 140, 180 100, 220 80
+             C 220 60, 240 50, 260 60
+             C 280 40, 320 50, 320 80
+             C 360 100, 312 140, 256 140"
+          fill="white" stroke="#2A2A2A" stroke-width="8"/>
+    
+    <!-- Play Button -->
+    <path d="M230 220 L230 292 L310 256 Z" 
+          fill="#2A2A2A"/>
+  </g>
+</svg> 

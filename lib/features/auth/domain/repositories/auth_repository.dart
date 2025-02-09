@@ -13,6 +13,8 @@ abstract class AuthRepository {
     required String password,
   });
 
+  Future<User> signInWithGoogle();
+
   Future<void> signOut();
   Stream<bool> get authStateChanges;
 }

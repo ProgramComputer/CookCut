@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../entities/media_asset.dart';
 
 abstract class MediaRepository {
@@ -7,6 +8,7 @@ abstract class MediaRepository {
     required String filePath,
     required MediaType type,
     Map<String, dynamic> metadata = const {},
+    StreamController<double>? progressController,
   });
 
   /// Get all media assets for a project
@@ -16,7 +18,8 @@ abstract class MediaRepository {
   Future<void> deleteMedia(MediaAsset asset);
 
   /// Generate a thumbnail for a video file
-  Future<String?> generateThumbnail(String videoPath);
+  Future<String?> generateThumbnail(String videoPath,
+      {required String projectId});
 
   /// Get the download URL for a media asset
   Future<String> getDownloadUrl(MediaAsset asset);

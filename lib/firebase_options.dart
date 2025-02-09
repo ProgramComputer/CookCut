@@ -59,4 +59,5 @@ class DefaultFirebaseOptions {
     projectId: 'cookcut-fdaef',
     storageBucket: 'cookcut-fdaef.firebasestorage.app',
   );
+
 }

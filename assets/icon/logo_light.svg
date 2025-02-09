@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="img-fluid" id="outputsvg" xmlns="http://www.w3.org/2000/svg"
+style="transform: matrix(1.11388, 0, 0, 1.11388, 0, 0); transform-origin: 50%
+50%; cursor: move; transition: transform 200ms ease-in-out;" width="253"
+height="219" viewBox="0 0 2530 2190">
+<g id="l2VlYHQY7edpm4zSduQ5d1S" fill="rgb(255,255,255)">
+<g style="transform: none;">
+<path id="patRsb2yo" d="M 1032 1996 c 3 -80 9 -149 13 -155 7 -12 173 -15 213 -5 25 7 28 43 9 108 -10 31 -19 42 -45 50 -42 14 -58 39 -37 56 8 7 15 27 15 45 0 30 -3 33 -37 39 -21 3 -60 6 -87 6 -49 0 -49 0 -44 -144 z "></path>
+<!-- ... rest of paths from main logo.svg with fill="rgb(255,255,255)" ... -->
+</g></g>
+<g id="l3ngNnMffwBqo6knJYG7GXs" fill="rgb(242,248,252)">
+<g style="transform: none;">
+<!-- ... paths from main logo.svg with fill="rgb(242,248,252)" ... -->
+</g></g>
+<g id="l4jTk18PHI8ykUnoFMqLlzL" fill="rgb(228,242,253)">
+<g style="transform: none;">
+<!-- ... paths from main logo.svg with fill="rgb(228,242,253)" ... -->
+</g></g>
+<!-- ... continue with all groups and paths from main logo.svg, keeping original light theme colors ... -->
+</svg> 

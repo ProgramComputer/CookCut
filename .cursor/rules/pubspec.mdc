@@ -1,9 +1,6 @@
 ---
-description:
-globs:
+description: Do not change
+globs: *.yaml
 ---
+YOU MAY LOOK BUT NOT CHANGE THIS FILE WITHOUT EXPLICiT PERMISSION OR USE OF CLI
 
-# Your rule content
-
-- You can @ files here
-- You can use markdown but dont have to

@@ -9,8 +9,45 @@ rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
+ext{
+ compileSdkVersion = 34
+}
 subprojects {
     project.evaluationDependsOn(":app")
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+
+    plugins.withId('com.android.library') {
+        extensions.configure(com.android.build.gradle.LibraryExtension) { android ->
+
+            // Ensure compileSdkVersion is set
+            if (!android.hasProperty("compileSdkVersion") || android.compileSdkVersion == null) {
+                android.compileSdkVersion = rootProject.ext.compileSdkVersion
+            }
+            // Retrieve the manifest file path
+            def manifestFile = android.sourceSets.main.manifest.srcFile
+
+
+            // Attempt to retrieve the package name from AndroidManifest.xml
+            def packageName = null
+
+            if (manifestFile.exists()) {
+                def manifestContent = new XmlParser().parse(file(manifestFile))
+                packageName = manifestContent.@package
+            }
+
+            // Ensure namespace is set with fallback logic
+            if (!android.hasProperty("namespace") || android.namespace == null || android.namespace.isEmpty()) {
+                if (packageName) {
+                    android.namespace = packageName
+                } else {
+                    // Set a default namespace if packageName is null
+                    def defaultNamespace = "com.example.${project.name}"
+                    println "Package name is null. Setting default namespace for project: ${project.name} to ${defaultNamespace}"
+                    android.namespace = defaultNamespace
+                }
+        }
+    }
+}
 }
 
 tasks.register("clean", Delete) {

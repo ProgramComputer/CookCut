@@ -1,0 +1,14 @@
+{
+  "name": "cookcut-openshot-scripts",
+  "version": "1.0.0",
+  "description": "Scripts for managing CookCut OpenShot projects",
+  "main": "create_openshot_project.js",
+  "scripts": {
+    "create-project": "node create_openshot_project.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.1",
+    "request": "^2.88.2",
+    "request-promise": "^4.2.6"
+  }
+} 

@@ -60,115 +60,118 @@ class ProjectCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.push('/projects/${project.id}', extra: project),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (project.thumbnailUrl != null)
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: Stack(
-                  children: [
-                    Image.network(
-                      project.thumbnailUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
-                          child: Icon(
-                            Icons.movie,
-                            size: 48,
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                        );
-                      },
-                    ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: IconButton.filledTonal(
-                        onPressed: () => _handleDelete(context),
-                        icon: const Icon(Icons.delete_outline),
-                        style: IconButton.styleFrom(
-                          backgroundColor: Colors.black45,
-                          foregroundColor: Colors.white,
-                        ),
+    return AspectRatio(
+      aspectRatio: 16 / 10,
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Thumbnail
+              if (project.thumbnailUrl != null)
+                Image.network(
+                  project.thumbnailUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Theme.of(context).colorScheme.surfaceVariant,
+                      child: Icon(
+                        Icons.movie_outlined,
+                        size: 48,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
+                    );
+                  },
+                )
+              else
+                Container(
+                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  child: Icon(
+                    Icons.movie_outlined,
+                    size: 48,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+
+              // Gradient overlay
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withOpacity(0.7),
+                      ],
+                      stops: const [0.6, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+
+              // Project info
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 16,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      project.title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white,
+                        shadows: [
+                          const Shadow(
+                            offset: Offset(0, 1),
+                            blurRadius: 2,
+                          ),
+                        ],
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.visibility_outlined,
+                          size: 16,
+                          color: Colors.white70,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${project.analytics.views}',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Colors.white70,
+                                  ),
+                        ),
+                        const SizedBox(width: 16),
+                        Icon(
+                          Icons.people_outline,
+                          size: 16,
+                          color: Colors.white70,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${project.collaboratorsCount}',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Colors.white70,
+                                  ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          project.title,
-                          style: Theme.of(context).textTheme.titleMedium,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (project.thumbnailUrl == null)
-                        IconButton(
-                          onPressed: () => _handleDelete(context),
-                          icon: const Icon(Icons.delete_outline),
-                          tooltip: 'Delete project',
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    project.description,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.visibility_outlined,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${project.analytics.views}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(width: 16),
-                      Icon(
-                        Icons.people_outline,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${project.collaboratorsCount}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const Spacer(),
-                      Text(
-                        timeago.format(project.updatedAt),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

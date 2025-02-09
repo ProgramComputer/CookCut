@@ -1,7 +1,10 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
+import 'dart:developer' as developer;
+import 'dart:async';
 import '../../domain/entities/media_asset.dart';
 import '../../domain/repositories/media_repository.dart';
+import '../../domain/entities/video_processing_config.dart';
 
 // Events
 abstract class MediaEvent extends Equatable {
@@ -25,12 +28,14 @@ class UploadMedia extends MediaEvent {
   final String filePath;
   final MediaType type;
   final Map<String, dynamic> metadata;
+  final StreamController<double>? progressController;
 
   const UploadMedia({
     required this.projectId,
     required this.filePath,
     required this.type,
     this.metadata = const {},
+    this.progressController,
   });
 
   @override
@@ -47,37 +52,37 @@ class DeleteMedia extends MediaEvent {
 }
 
 // States
-enum MediaStatus { initial, loading, success, error }
+enum MediaStatus { initial, loading, processing, success, error }
 
 class MediaState extends Equatable {
-  final List<MediaAsset> assets;
   final MediaStatus status;
+  final List<MediaAsset> assets;
   final String? error;
-  final double? uploadProgress;
+  final double? processingProgress;
 
   const MediaState({
-    this.assets = const [],
     this.status = MediaStatus.initial,
+    this.assets = const [],
     this.error,
-    this.uploadProgress,
+    this.processingProgress,
   });
 
   MediaState copyWith({
-    List<MediaAsset>? assets,
     MediaStatus? status,
+    List<MediaAsset>? assets,
     String? error,
-    double? uploadProgress,
+    double? processingProgress,
   }) {
     return MediaState(
-      assets: assets ?? this.assets,
       status: status ?? this.status,
-      error: error ?? this.error,
-      uploadProgress: uploadProgress ?? this.uploadProgress,
+      assets: assets ?? this.assets,
+      error: error,
+      processingProgress: processingProgress ?? this.processingProgress,
     );
   }
 
   @override
-  List<Object?> get props => [assets, status, error, uploadProgress];
+  List<Object?> get props => [status, assets, error, processingProgress];
 }
 
 // Bloc
@@ -97,14 +102,30 @@ class MediaBloc extends Bloc<MediaEvent, MediaState> {
     LoadProjectMedia event,
     Emitter<MediaState> emit,
   ) async {
+    developer.log(
+      'Loading project media',
+      name: 'MediaBloc',
+      error: {'projectId': event.projectId},
+    );
     emit(state.copyWith(status: MediaStatus.loading));
     try {
       final assets = await _mediaRepository.getProjectMedia(event.projectId);
+      developer.log(
+        'Project media loaded successfully',
+        name: 'MediaBloc',
+        error: {'projectId': event.projectId, 'assetCount': assets.length},
+      );
       emit(state.copyWith(
         status: MediaStatus.success,
         assets: assets,
       ));
-    } catch (e) {
+    } catch (e, stackTrace) {
+      developer.log(
+        'Error loading project media',
+        error: e,
+        stackTrace: stackTrace,
+        name: 'MediaBloc',
+      );
       emit(state.copyWith(
         status: MediaStatus.error,
         error: e.toString(),
@@ -116,29 +137,79 @@ class MediaBloc extends Bloc<MediaEvent, MediaState> {
     UploadMedia event,
     Emitter<MediaState> emit,
   ) async {
-    emit(state.copyWith(
-      status: MediaStatus.loading,
-      uploadProgress: 0,
-    ));
+    developer.log(
+      'Starting media upload',
+      name: 'MediaBloc',
+      error: {
+        'projectId': event.projectId,
+        'filePath': event.filePath,
+        'type': event.type.toString(),
+      },
+    );
+
+    if (event.type == MediaType.audio) {
+      emit(state.copyWith(status: MediaStatus.loading));
+    } else {
+      emit(state.copyWith(
+        status: MediaStatus.processing,
+        processingProgress: 0.0,
+      ));
+
+      // Listen to processing progress if available
+      if (event.progressController != null) {
+        event.progressController!.stream.listen(
+          (progress) {
+            emit(state.copyWith(
+              status: MediaStatus.processing,
+              processingProgress: progress,
+            ));
+          },
+          onError: (error) {
+            emit(state.copyWith(
+              status: MediaStatus.error,
+              error: 'Processing error: $error',
+            ));
+          },
+        );
+      }
+    }
+
     try {
       final asset = await _mediaRepository.uploadMedia(
         projectId: event.projectId,
         filePath: event.filePath,
         type: event.type,
         metadata: event.metadata,
+        progressController: event.progressController,
+      );
+
+      developer.log(
+        'Media upload successful',
+        name: 'MediaBloc',
+        error: {
+          'projectId': event.projectId,
+          'assetId': asset.id,
+          'fileUrl': asset.fileUrl,
+        },
       );
 
       final updatedAssets = [...state.assets, asset];
       emit(state.copyWith(
         status: MediaStatus.success,
         assets: updatedAssets,
-        uploadProgress: null,
+        processingProgress: null,
       ));
-    } catch (e) {
+    } catch (e, stackTrace) {
+      developer.log(
+        'Error uploading media',
+        error: e,
+        stackTrace: stackTrace,
+        name: 'MediaBloc',
+      );
       emit(state.copyWith(
         status: MediaStatus.error,
         error: e.toString(),
-        uploadProgress: null,
+        processingProgress: null,
       ));
     }
   }
@@ -147,16 +218,32 @@ class MediaBloc extends Bloc<MediaEvent, MediaState> {
     DeleteMedia event,
     Emitter<MediaState> emit,
   ) async {
+    developer.log(
+      'Deleting media',
+      name: 'MediaBloc',
+      error: {'assetId': event.asset.id, 'projectId': event.asset.projectId},
+    );
     emit(state.copyWith(status: MediaStatus.loading));
     try {
       await _mediaRepository.deleteMedia(event.asset);
       final updatedAssets =
           state.assets.where((asset) => asset.id != event.asset.id).toList();
+      developer.log(
+        'Media deleted successfully',
+        name: 'MediaBloc',
+        error: {'assetId': event.asset.id},
+      );
       emit(state.copyWith(
         status: MediaStatus.success,
         assets: updatedAssets,
       ));
-    } catch (e) {
+    } catch (e, stackTrace) {
+      developer.log(
+        'Error deleting media',
+        error: e,
+        stackTrace: stackTrace,
+        name: 'MediaBloc',
+      );
       emit(state.copyWith(
         status: MediaStatus.error,
         error: e.toString(),

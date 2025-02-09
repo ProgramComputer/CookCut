@@ -1,6 +1,54 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getRole(projectId, userId) {
+      let collaboratorDoc = get(/databases/$(database)/documents/projects/$(projectId)/collaborators/$(userId));
+      return collaboratorDoc.data.role;
+    }
+
+    function isOneOfRoles(projectId, roles) {
+      return isSignedIn() && 
+        (get(/databases/$(database)/documents/projects/$(projectId)).data.user_id == request.auth.uid || 
+        (getRole(projectId, request.auth.uid) in roles));
+    }
+
+    match /projects/{projectId} {
+      // Only authenticated users can read projects they own or collaborate on
+      allow read: if isSignedIn() && (
+        resource.data.user_id == request.auth.uid ||
+        exists(/databases/$(database)/documents/projects/$(projectId)/collaborators/$(request.auth.uid))
+      );
+      
+      // Only authenticated users can create projects
+      allow create: if isSignedIn();
+      
+      // Only project owners can update or delete projects
+      allow update, delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
+
+      match /collaborators/{userId} {
+        // Anyone can read collaborator list if they have access to the project
+        allow read: if isSignedIn() && isOneOfRoles(projectId, ['owner', 'editor', 'viewer']);
+        
+        // Only project owners can manage collaborators
+        allow write: if isSignedIn() && 
+          get(/databases/$(database)/documents/projects/$(projectId)).data.user_id == request.auth.uid &&
+          // Ensure role field exists and is valid
+          request.resource.data.role in ['owner', 'editor', 'viewer'] &&
+          // Prevent changing owner role
+          !(resource != null && resource.data.role == 'owner' && request.resource.data.role != 'owner');
+      }
+
+      match /media_assets/{assetId} {
+        // Owners and editors can manage media assets
+        allow read: if isSignedIn() && isOneOfRoles(projectId, ['owner', 'editor', 'viewer']);
+        allow write: if isSignedIn() && isOneOfRoles(projectId, ['owner', 'editor']);
+      }
+    }
+
     // Test mode: Allow read/write access to all documents
     match /{document=**} {
       allow read, write: if true;

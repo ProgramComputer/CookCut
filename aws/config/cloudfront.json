@@ -1,0 +1,91 @@
+{
+    "CallerReference": "cookcut-media-init-2024-02-05",
+    "Aliases": {
+        "Quantity": 0,
+        "Items": []
+    },
+    "DefaultRootObject": "index.html",
+    "Origins": {
+        "Quantity": 1,
+        "Items": [
+            {
+                "Id": "S3-cookcut-media",
+                "DomainName": "cookcut-media.s3.amazonaws.com",
+                "S3OriginConfig": {
+                    "OriginAccessIdentity": "origin-access-identity/cloudfront/XXXXX"
+                },
+                "OriginPath": ""
+            }
+        ]
+    },
+    "DefaultCacheBehavior": {
+        "TargetOriginId": "S3-cookcut-media",
+        "ViewerProtocolPolicy": "redirect-to-https",
+        "AllowedMethods": {
+            "Quantity": 7,
+            "Items": [
+                "GET",
+                "HEAD",
+                "OPTIONS",
+                "PUT",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ],
+            "CachedMethods": {
+                "Quantity": 2,
+                "Items": [
+                    "GET",
+                    "HEAD"
+                ]
+            }
+        },
+        "ForwardedValues": {
+            "QueryString": true,
+            "Cookies": {
+                "Forward": "none"
+            },
+            "Headers": {
+                "Quantity": 3,
+                "Items": [
+                    "Origin",
+                    "Access-Control-Request-Headers",
+                    "Access-Control-Request-Method"
+                ]
+            }
+        },
+        "MinTTL": 0,
+        "DefaultTTL": 86400,
+        "MaxTTL": 31536000,
+        "Compress": true
+    },
+    "CacheBehaviors": {
+        "Quantity": 0,
+        "Items": []
+    },
+    "CustomErrorResponses": {
+        "Quantity": 0,
+        "Items": []
+    },
+    "Comment": "CloudFront Distribution for CookCut Media",
+    "Logging": {
+        "Enabled": false,
+        "IncludeCookies": false,
+        "Bucket": "",
+        "Prefix": ""
+    },
+    "PriceClass": "PriceClass_All",
+    "Enabled": true,
+    "ViewerCertificate": {
+        "CloudFrontDefaultCertificate": true
+    },
+    "Restrictions": {
+        "GeoRestriction": {
+            "RestrictionType": "none",
+            "Quantity": 0,
+            "Items": []
+        }
+    },
+    "HttpVersion": "http2",
+    "IsIPV6Enabled": true
+}

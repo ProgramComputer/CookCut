@@ -27,58 +27,35 @@ class ProjectsListPage extends StatelessWidget {
             context.go('/login');
           }
         },
-        child: _ProjectsListView(),
+        child: const _ProjectsListView(),
       ),
     );
   }
 }
 
 class _ProjectsListView extends StatefulWidget {
+  const _ProjectsListView();
+
   @override
   State<_ProjectsListView> createState() => _ProjectsListViewState();
 }
 
 class _ProjectsListViewState extends State<_ProjectsListView> {
-  bool _isGridView = true;
   String _searchQuery = '';
 
-  Future<void> _handleSignOut(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
+  void _handleSignOut(BuildContext context) {
+    context.read<AuthBloc>().add(const SignOutRequested());
+  }
+
+  void _showCreateProjectDialog(BuildContext context) {
+    final projectsBloc = context.read<ProjectsBloc>();
+    showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(Icons.logout),
-        title: const Text('Sign Out'),
-        content: const Text('Are you sure you want to sign out?'),
-        actions: [
-          TextButton(
-            onPressed: () => context.pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.tonal(
-            onPressed: () => context.pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.errorContainer,
-              foregroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Sign Out'),
-          ),
-        ],
+      builder: (dialogContext) => BlocProvider.value(
+        value: projectsBloc,
+        child: const CreateProjectDialog(),
       ),
     );
-
-    if (confirmed == true) {
-      if (!mounted) return;
-
-      // Show loading indicator
-      showLoadingSnackBar(context, 'Signing out...');
-
-      try {
-        context.read<AuthBloc>().add(const SignOutRequested());
-      } catch (e) {
-        if (!mounted) return;
-        showErrorSnackBar(context, 'Failed to sign out: ${e.toString()}');
-      }
-    }
   }
 
   @override
@@ -87,16 +64,6 @@ class _ProjectsListViewState extends State<_ProjectsListView> {
       appBar: AppBar(
         title: const Text('My Projects'),
         actions: [
-          IconButton(
-            icon: Icon(_isGridView ? Icons.view_list : Icons.grid_view),
-            tooltip:
-                _isGridView ? 'Switch to list view' : 'Switch to grid view',
-            onPressed: () {
-              setState(() {
-                _isGridView = !_isGridView;
-              });
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',
@@ -207,18 +174,141 @@ class _ProjectsListViewState extends State<_ProjectsListView> {
                   );
                 }
 
-                return CustomScrollView(
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: _buildAnalyticsSummary(context, filteredProjects),
-                    ),
-                    SliverPadding(
-                      padding: const EdgeInsets.all(16.0),
-                      sliver: _isGridView
-                          ? _buildGridView(context, filteredProjects)
-                          : _buildListView(context, filteredProjects),
-                    ),
-                  ],
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: filteredProjects.length,
+                  itemBuilder: (context, index) {
+                    final project = filteredProjects[index];
+                    return Dismissible(
+                      key: Key(project.id),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
+                        color: Colors.red,
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      confirmDismiss: (direction) async {
+                        return await showDialog<bool>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Delete Project'),
+                                content: Text('Delete "${project.title}"?'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, true),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: Colors.red,
+                                    ),
+                                    child: const Text('Delete'),
+                                  ),
+                                ],
+                              ),
+                            ) ??
+                            false;
+                      },
+                      onDismissed: (direction) {
+                        context.read<ProjectsBloc>().add(
+                              DeleteProject(projectId: project.id),
+                            );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${project.title} deleted'),
+                            action: SnackBarAction(
+                              label: 'Undo',
+                              onPressed: () {
+                                // TODO: Implement undo
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                      child: Card(
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: () {
+                            context.push('/projects/${project.id}',
+                                extra: project);
+                          },
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (project.thumbnailUrl != null)
+                                AspectRatio(
+                                  aspectRatio: 16 / 9,
+                                  child: Image.network(
+                                    project.thumbnailUrl!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Container(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .surfaceVariant,
+                                        child: Icon(
+                                          Icons.movie,
+                                          size: 48,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      project.title,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.visibility_outlined,
+                                          size: 16,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '${project.analytics.views}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
+                                        ),
+                                        const Spacer(),
+                                        Text(
+                                          timeago.format(project.updatedAt),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 );
               },
             ),
@@ -228,254 +318,12 @@ class _ProjectsListViewState extends State<_ProjectsListView> {
       floatingActionButton: BlocBuilder<ProjectsBloc, ProjectsState>(
         builder: (context, state) {
           if (state.projects.isEmpty) return const SizedBox.shrink();
-          return FloatingActionButton.extended(
+          return FloatingActionButton(
             onPressed: () => _showCreateProjectDialog(context),
-            icon: const Icon(Icons.add),
-            label: const Text('New Project'),
+            child: const Icon(Icons.add),
           );
         },
       ),
-    );
-  }
-
-  Widget _buildGridView(BuildContext context, List<Project> projects) {
-    return SliverGrid(
-      delegate: SliverChildBuilderDelegate(
-        (context, index) {
-          final project = projects[index];
-          return ProjectCard(
-            project: project,
-            onTap: () {
-              // TODO: Navigate to project details
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Project details coming soon')),
-              );
-            },
-          );
-        },
-        childCount: projects.length,
-      ),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 400,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: 1.2,
-      ),
-    );
-  }
-
-  Widget _buildListView(BuildContext context, List<Project> projects) {
-    return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (context, index) {
-          final project = projects[index];
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8.0),
-            child: Card(
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: () {
-                  // TODO: Navigate to project details
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('Project details coming soon')),
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    children: [
-                      if (project.thumbnailUrl != null)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: SizedBox(
-                            width: 120,
-                            height: 68,
-                            child: Image.network(
-                              project.thumbnailUrl!,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .surfaceContainerHighest,
-                                  child: Icon(
-                                    Icons.movie,
-                                    size: 32,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              project.title,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              project.description,
-                              style: Theme.of(context).textTheme.bodyMedium,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.visibility_outlined,
-                                  size: 16,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${project.analytics.views}',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                                const SizedBox(width: 16),
-                                Icon(
-                                  Icons.people_outline,
-                                  size: 16,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${project.collaboratorsCount}',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                                const Spacer(),
-                                Text(
-                                  timeago.format(project.updatedAt),
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-        childCount: projects.length,
-      ),
-    );
-  }
-
-  Widget _buildAnalyticsSummary(BuildContext context, List<Project> projects) {
-    final totalViews = projects.fold<int>(
-      0,
-      (sum, project) => sum + project.analytics.views,
-    );
-    final avgEngagement = projects.isEmpty
-        ? 0.0
-        : projects.fold<double>(
-              0.0,
-              (sum, project) => sum + project.analytics.engagementRate,
-            ) /
-            projects.length;
-
-    return Card(
-      margin: const EdgeInsets.all(16.0),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Analytics Overview',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _AnalyticsTile(
-                    icon: Icons.visibility_outlined,
-                    label: 'Total Views',
-                    value: totalViews.toString(),
-                  ),
-                ),
-                Expanded(
-                  child: _AnalyticsTile(
-                    icon: Icons.trending_up_outlined,
-                    label: 'Avg. Engagement',
-                    value: '${(avgEngagement * 100).toStringAsFixed(1)}%',
-                  ),
-                ),
-                Expanded(
-                  child: _AnalyticsTile(
-                    icon: Icons.video_library_outlined,
-                    label: 'Projects',
-                    value: projects.length.toString(),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showCreateProjectDialog(BuildContext context) {
-    final projectsBloc = context.read<ProjectsBloc>();
-    showDialog(
-      context: context,
-      builder: (dialogContext) => BlocProvider.value(
-        value: projectsBloc,
-        child: const CreateProjectDialog(),
-      ),
-    );
-  }
-}
-
-class _AnalyticsTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _AnalyticsTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(
-          icon,
-          size: 24,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ],
     );
   }
 }

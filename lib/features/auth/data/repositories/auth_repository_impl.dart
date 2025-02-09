@@ -1,13 +1,17 @@
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:google_sign_in/google_sign_in.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
   final firebase_auth.FirebaseAuth _firebaseAuth;
+  final GoogleSignIn _googleSignIn;
 
   AuthRepositoryImpl({
     firebase_auth.FirebaseAuth? firebaseAuth,
-  }) : _firebaseAuth = firebaseAuth ?? firebase_auth.FirebaseAuth.instance;
+    GoogleSignIn? googleSignIn,
+  })  : _firebaseAuth = firebaseAuth ?? firebase_auth.FirebaseAuth.instance,
+        _googleSignIn = googleSignIn ?? GoogleSignIn();
 
   @override
   Future<User?> getCurrentUser() async {
@@ -77,11 +81,52 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<void> signOut() async {
+  Future<User> signInWithGoogle() async {
     try {
-      await _firebaseAuth.signOut();
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        throw Exception('Google Sign In was cancelled');
+      }
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+      final credential = firebase_auth.GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final userCredential =
+          await _firebaseAuth.signInWithCredential(credential);
+      final firebaseUser = userCredential.user;
+
+      if (firebaseUser == null) {
+        throw Exception('Failed to sign in with Google: No user returned');
+      }
+
+      return User(
+        id: firebaseUser.uid,
+        email: firebaseUser.email!,
+        displayName: firebaseUser.displayName,
+        photoUrl: firebaseUser.photoURL,
+      );
     } on firebase_auth.FirebaseAuthException catch (e) {
       throw _handleFirebaseAuthError(e);
+    } catch (e) {
+      throw Exception('Failed to sign in with Google: ${e.toString()}');
+    }
+  }
+
+  @override
+  Future<void> signOut() async {
+    try {
+      await Future.wait([
+        _firebaseAuth.signOut(),
+        _googleSignIn.signOut(),
+      ]);
+    } on firebase_auth.FirebaseAuthException catch (e) {
+      throw _handleFirebaseAuthError(e);
+    } catch (e) {
+      throw Exception('Failed to sign out: ${e.toString()}');
     }
   }
 

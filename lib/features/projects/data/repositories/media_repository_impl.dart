@@ -9,6 +9,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../domain/entities/media_asset.dart';
 import '../../domain/repositories/media_repository.dart';
 import '../services/media_processing_service.dart';
+import '../../domain/entities/video_processing_config.dart';
+import 'dart:async';
 
 class MediaRepositoryImpl implements MediaRepository {
   final FirebaseFirestore _firestore;
@@ -32,75 +34,85 @@ class MediaRepositoryImpl implements MediaRepository {
     required String filePath,
     required MediaType type,
     Map<String, dynamic> metadata = const {},
+    StreamController<double>? progressController,
   }) async {
     final file = File(filePath);
-    if (!await file.exists()) {
-      throw Exception('File does not exist: $filePath');
-    }
-
     final fileName = path.basename(filePath);
     final mimeType = lookupMimeType(filePath);
-    if (mimeType == null) {
-      throw Exception('Could not determine file type');
+    String? thumbnailUrl;
+
+    if (!await file.exists()) {
+      throw Exception('File does not exist');
     }
 
     // Generate thumbnail for video files
-    String? thumbnailUrl;
-    if (type == MediaType.rawFootage || type == MediaType.editedClip) {
-      try {
-        thumbnailUrl =
-            await _mediaProcessingService.generateThumbnail(filePath);
-      } catch (e) {
-        print('Warning: Failed to generate thumbnail: $e');
-        // Continue with upload even if thumbnail generation fails
-      }
+    if (type != MediaType.audio && (mimeType?.startsWith('video/') ?? false)) {
+      thumbnailUrl = await _mediaProcessingService.generateThumbnail(
+        filePath,
+        projectId: projectId,
+      );
     }
 
-    // Upload file to Supabase Storage
-    final userId = _auth.currentUser?.uid;
-    if (userId == null) throw Exception('User not authenticated');
+    // Determine storage path based on media type
+    final mediaFolder = type == MediaType.rawFootage
+        ? 'raw'
+        : type == MediaType.editedClip
+            ? 'edited'
+            : 'audio';
 
-    final storagePath =
-        'projects/$projectId/media/${type.name.toLowerCase()}/$fileName';
+    final storagePath = 'projects/$projectId/media/$mediaFolder/$fileName';
 
-    // Upload the file
-    await _supabase.storage.from('cookcut-media').upload(storagePath, file,
-        fileOptions: FileOptions(
-          contentType: mimeType,
-          upsert: true,
-        ));
+    // Upload to Supabase Storage
+    try {
+        await _supabase.storage.from('cookcut-media').upload(
+              storagePath,
+              file,
+              fileOptions: FileOptions(
+                contentType: mimeType,
+                upsert: true,
+              ),
+            );
 
-    // Get the public URL
-    final downloadUrl = await _supabase.storage
-        .from('cookcut-media')
-        .createSignedUrl(storagePath, 60 * 60 * 24 * 7); // 7 days expiry
+      // Get the file URL
+      final fileUrl =
+          _supabase.storage.from('cookcut-media').getPublicUrl(storagePath);
 
-    // Create Firestore document
-    final docRef = await _firestore
-        .collection('projects')
-        .doc(projectId)
-        .collection('media_assets')
-        .add({
-      'fileName': fileName,
-      'fileUrl': downloadUrl,
-      'thumbnailUrl': thumbnailUrl,
-      'type': type.name,
-      'fileSize': await file.length(),
-      'uploadedAt': FieldValue.serverTimestamp(),
-      'metadata': metadata,
-    });
+      // Create Firestore document
+      final docRef = await _firestore
+          .collection('projects')
+          .doc(projectId)
+          .collection('media_assets')
+          .add({
+        'fileName': fileName,
+        'storagePath': storagePath,
+        'fileUrl': fileUrl,
+        'thumbnailUrl': thumbnailUrl,
+        'type': type.name,
+        'fileSize': await file.length(),
+        'uploadedAt': FieldValue.serverTimestamp(),
+        'metadata': metadata,
+      });
 
-    return MediaAsset(
-      id: docRef.id,
-      projectId: projectId,
-      type: type,
-      fileUrl: downloadUrl,
-      fileName: fileName,
-      fileSize: await file.length(),
-      uploadedAt: DateTime.now(),
-      thumbnailUrl: thumbnailUrl,
-      metadata: metadata,
-    );
+      return MediaAsset(
+        id: docRef.id,
+        projectId: projectId,
+        type: type,
+        fileUrl: fileUrl,
+        fileName: fileName,
+        fileSize: await file.length(),
+        uploadedAt: DateTime.now(),
+        thumbnailUrl: thumbnailUrl,
+        metadata: metadata,
+      );
+    } catch (e) {
+      // Clean up any uploaded files if the process fails
+      try {
+        await _supabase.storage.from('cookcut-media').remove([storagePath]);
+      } catch (_) {
+        // Ignore cleanup errors
+      }
+      throw Exception('Failed to upload media: ${e.toString()}');
+    }
   }
 
   @override
@@ -133,18 +145,25 @@ class MediaRepositoryImpl implements MediaRepository {
 
   @override
   Future<void> deleteMedia(MediaAsset asset) async {
-    final storagePath =
-        'projects/${asset.projectId}/media/${asset.type.name.toLowerCase()}/${asset.fileName}';
+    // Get the storage path from Firestore
+    final doc = await _firestore
+        .collection('projects')
+        .doc(asset.projectId)
+        .collection('media_assets')
+        .doc(asset.id)
+        .get();
+
+    if (!doc.exists) {
+      throw Exception('Media asset not found');
+    }
+
+    final storagePath = doc.data()?['storagePath'] as String?;
+    if (storagePath == null) {
+      throw Exception('Storage path not found');
+    }
 
     // Delete from Supabase Storage
     await _supabase.storage.from('cookcut-media').remove([storagePath]);
-
-    // Delete thumbnail if exists
-    if (asset.thumbnailUrl != null) {
-      final thumbnailPath =
-          'projects/${asset.projectId}/media/${asset.type.name.toLowerCase()}/thumbnails/${asset.fileName.split('.').first}_thumb.jpg';
-      await _supabase.storage.from('cookcut-media').remove([thumbnailPath]);
-    }
 
     // Delete from Firestore
     await _firestore
@@ -156,69 +175,33 @@ class MediaRepositoryImpl implements MediaRepository {
   }
 
   @override
-  Future<String?> generateThumbnail(String videoPath) async {
-    try {
-      return await _mediaProcessingService.generateThumbnail(videoPath);
-    } catch (e) {
-      print('Error generating thumbnail: $e');
-      return null;
-    }
-  }
-
-  @override
-  Future<String?> uploadVideo(String videoPath) async {
-    try {
-      final file = File(videoPath);
-      final fileName = videoPath.split('/').last;
-      final userId = _auth.currentUser?.uid;
-      if (userId == null) throw Exception('User not authenticated');
-
-      final storagePath = 'users/$userId/videos/$fileName';
-
-      // Upload video to Supabase Storage
-      await _supabase.storage.from('cookcut-media').upload(storagePath, file,
-          fileOptions: FileOptions(
-            contentType: 'video/mp4',
-            upsert: true,
-          ));
-
-      // Get public URL
-      final urlResponse = await _supabase.storage
-          .from('cookcut-media')
-          .createSignedUrl(storagePath, 60 * 60 * 24 * 7); // 7 days expiry
-
-      return urlResponse;
-    } catch (e) {
-      print('Error uploading video: $e');
-      return null;
-    }
-  }
-
-  @override
-  Future<String?> compressVideo(String videoPath) async {
-    try {
-      return await _mediaProcessingService.compressVideo(videoPath);
-    } catch (e) {
-      print('Error compressing video: $e');
-      return null;
-    }
-  }
-
-  @override
-  Future<String?> transcodeVideo(String videoPath, String format) async {
-    try {
-      return await _mediaProcessingService.transcodeVideo(videoPath, format);
-    } catch (e) {
-      print('Error transcoding video: $e');
-      return null;
-    }
+  Future<String?> generateThumbnail(String videoPath,
+      {required String projectId}) async {
+    return _mediaProcessingService.generateThumbnail(
+      videoPath,
+      projectId: projectId,
+    );
   }
 
   @override
   Future<String> getDownloadUrl(MediaAsset asset) async {
-    final storagePath =
-        'projects/${asset.projectId}/media/${asset.type.name.toLowerCase()}/${asset.fileName}';
-    return await _supabase.storage
+    final doc = await _firestore
+        .collection('projects')
+        .doc(asset.projectId)
+        .collection('media_assets')
+        .doc(asset.id)
+        .get();
+
+    if (!doc.exists) {
+      throw Exception('Media asset not found');
+    }
+
+    final storagePath = doc.data()?['storagePath'] as String?;
+    if (storagePath == null) {
+      throw Exception('Storage path not found');
+    }
+
+    return _supabase.storage
         .from('cookcut-media')
         .createSignedUrl(storagePath, 60 * 60 * 24 * 7); // 7 days expiry
   }

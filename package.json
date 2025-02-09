@@ -1,5 +1,14 @@
 {
   "dependencies": {
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7",
     "firebase-tools": "^13.29.3"
+  },
+  "devDependencies": {
+    "svg-to-png": "^4.0.0"
+  },
+  "scripts": {
+    "convert-logo": "node convert-svg.js",
+    "test-openshot": "node test-openshot.js",
   }
 }
