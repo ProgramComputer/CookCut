@@ -46,6 +46,48 @@ service cloud.firestore {
         // Owners and editors can manage media assets
         allow read: if isSignedIn() && isOneOfRoles(projectId, ['owner', 'editor', 'viewer']);
         allow write: if isSignedIn() && isOneOfRoles(projectId, ['owner', 'editor']);
+
+        // Comments rules
+        match /comments/{commentId} {
+          // Anyone with project access can read comments
+          allow read: if isSignedIn() && isOneOfRoles(projectId, ['owner', 'editor', 'viewer']);
+          
+          // Owners and editors can create comments
+          allow create: if isSignedIn() && 
+            isOneOfRoles(projectId, ['owner', 'editor']) &&
+            request.resource.data.authorId == request.auth.uid;
+          
+          // Only comment authors can update their own comments
+          allow update: if isSignedIn() && 
+            resource.data.authorId == request.auth.uid &&
+            request.resource.data.authorId == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['text', 'updatedAt']);
+          
+          // Comment authors and project owners can delete comments
+          allow delete: if isSignedIn() && (
+            resource.data.authorId == request.auth.uid ||
+            get(/databases/$(database)/documents/projects/$(projectId)).data.user_id == request.auth.uid
+          );
+        }
+      }
+
+      // Video overlays rules
+      match /video_overlays/{overlayId} {
+        // Anyone with project access can read overlays
+        allow read: if isSignedIn() && isOneOfRoles(projectId, ['owner', 'editor', 'viewer']);
+        
+        // Only owners and editors can create/update/delete overlays
+        allow write: if isSignedIn() && isOneOfRoles(projectId, ['owner', 'editor']) &&
+          // Ensure required fields exist
+          request.resource.data.keys().hasAll(['project_id', 'type', 'data', 'start_time', 'end_time', 'x', 'y']) &&
+          // Ensure project_id matches parent
+          request.resource.data.project_id == projectId &&
+          // Ensure type is valid
+          request.resource.data.type in ['text', 'timer'] &&
+          // Ensure coordinates are within bounds
+          request.resource.data.x >= 0 && request.resource.data.x <= 1 &&
+          request.resource.data.y >= 0 && request.resource.data.y <= 1;
       }
     }
 

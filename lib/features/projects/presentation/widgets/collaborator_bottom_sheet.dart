@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../domain/entities/collaborator.dart';
 import '../../domain/entities/collaborator_role.dart';
 
-class CollaboratorBottomSheet extends StatelessWidget {
+class CollaboratorBottomSheet extends StatefulWidget {
   final String projectId;
   final List<Collaborator> collaborators;
   final CollaboratorRole currentUserRole;
-  final Function(String email) onInvite;
-  final Function(String collaboratorId, CollaboratorRole newRole) onRoleChange;
-  final Function(String collaboratorId) onRemove;
+  final Function(String) onInvite;
+  final Function(String, CollaboratorRole) onRoleChange;
+  final Function(String) onRemove;
 
   const CollaboratorBottomSheet({
     super.key,
@@ -22,424 +21,180 @@ class CollaboratorBottomSheet extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final canManageCollaborators = currentUserRole == CollaboratorRole.owner;
-
-    return DraggableScrollableSheet(
-      initialChildSize: 0.7,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Column(
-            children: [
-              _buildHandle(theme),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Text(
-                      'Project Collaborators',
-                      style: theme.textTheme.titleLarge,
-                    ),
-                    const Spacer(),
-                    if (canManageCollaborators)
-                      FilledButton.icon(
-                        onPressed: () => _showInviteDialog(context),
-                        icon: const Icon(Icons.person_add),
-                        label: const Text('Invite'),
-                      ),
-                  ],
-                ),
-              ),
-              const Divider(),
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  itemCount: collaborators.length,
-                  itemBuilder: (context, index) {
-                    final collaborator = collaborators[index];
-                    return _CollaboratorTile(
-                      collaborator: collaborator,
-                      canEdit: canManageCollaborators &&
-                          collaborator.role != CollaboratorRole.owner,
-                      onRoleChange: onRoleChange,
-                      onRemove: onRemove,
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildHandle(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Container(
-        width: 32,
-        height: 4,
-        decoration: BoxDecoration(
-          color: theme.colorScheme.onSurfaceVariant.withOpacity(0.4),
-          borderRadius: BorderRadius.circular(2),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showInviteDialog(BuildContext context) async {
-    final emailController = TextEditingController();
-
-    return showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Invite Collaborator'),
-        content: TextField(
-          controller: emailController,
-          decoration: const InputDecoration(
-            labelText: 'Email Address',
-            hintText: 'Enter collaborator\'s email',
-          ),
-          keyboardType: TextInputType.emailAddress,
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final email = emailController.text.trim();
-              if (email.isNotEmpty) {
-                onInvite(email);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Invite'),
-          ),
-        ],
-      ),
-    );
-  }
+  State<CollaboratorBottomSheet> createState() =>
+      _CollaboratorBottomSheetState();
 }
 
-class _CollaboratorTile extends StatelessWidget {
-  final Collaborator collaborator;
-  final bool canEdit;
-  final Function(String, CollaboratorRole) onRoleChange;
-  final Function(String) onRemove;
+class _CollaboratorBottomSheetState extends State<CollaboratorBottomSheet> {
+  final _emailController = TextEditingController();
+  bool _isInviting = false;
 
-  const _CollaboratorTile({
-    required this.collaborator,
-    required this.canEdit,
-    required this.onRoleChange,
-    required this.onRemove,
-  });
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final canManageCollaborators =
+        widget.currentUserRole == CollaboratorRole.owner;
 
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundImage: collaborator.photoUrl != null
-            ? NetworkImage(collaborator.photoUrl!)
-            : null,
-        child: collaborator.photoUrl == null
-            ? Text(
-                (collaborator.displayName ?? collaborator.email ?? '')
-                    .characters
-                    .first
-                    .toUpperCase(),
-              )
-            : null,
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.8,
       ),
-      title: Text(collaborator.displayName ?? collaborator.email ?? 'Unknown'),
-      subtitle: Text(collaborator.role.displayName),
-      trailing: canEdit
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                DropdownButton<CollaboratorRole>(
-                  value: collaborator.role,
-                  onChanged: (newRole) {
-                    if (newRole != null) {
-                      onRoleChange(collaborator.id, newRole);
-                    }
-                  },
-                  items: CollaboratorRole.values
-                      .where((role) => role != CollaboratorRole.owner)
-                      .map((role) => DropdownMenuItem(
-                            value: role,
-                            child: Text(role.displayName),
-                          ))
-                      .toList(),
+                Text(
+                  'Project Collaborators',
+                  style: theme.textTheme.titleLarge,
                 ),
                 IconButton(
-                  icon: const Icon(Icons.remove_circle_outline),
-                  color: theme.colorScheme.error,
-                  onPressed: () => _showRemoveDialog(context),
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
                 ),
               ],
-            )
-          : null,
-    );
-  }
-
-  Future<void> _showRemoveDialog(BuildContext context) {
-    return showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove Collaborator'),
-        content: Text(
-            'Are you sure you want to remove ${collaborator.displayName ?? collaborator.email} from this project?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              onRemove(collaborator.id);
-              Navigator.pop(context);
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
             ),
-            child: const Text('Remove'),
           ),
-        ],
-      ),
-    );
-  }
-}
+          const Divider(height: 1),
 
-import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../domain/entities/collaborator.dart';
-import '../../domain/entities/collaborator_role.dart';
-
-class CollaboratorBottomSheet extends StatelessWidget {
-  final String projectId;
-  final List<Collaborator> collaborators;
-  final CollaboratorRole currentUserRole;
-  final Function(String email) onInvite;
-  final Function(String collaboratorId, CollaboratorRole newRole) onRoleChange;
-  final Function(String collaboratorId) onRemove;
-
-  const CollaboratorBottomSheet({
-    super.key,
-    required this.projectId,
-    required this.collaborators,
-    required this.currentUserRole,
-    required this.onInvite,
-    required this.onRoleChange,
-    required this.onRemove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final canManageCollaborators = currentUserRole == CollaboratorRole.owner;
-
-    return DraggableScrollableSheet(
-      initialChildSize: 0.7,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Column(
-            children: [
-              _buildHandle(theme),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Text(
-                      'Project Collaborators',
-                      style: theme.textTheme.titleLarge,
+          // Invite Section (Moved to top for better visibility)
+          if (canManageCollaborators) ...[
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (!_isInviting)
+                    FilledButton.icon(
+                      onPressed: () => setState(() => _isInviting = true),
+                      icon: const Icon(Icons.person_add),
+                      label: const Text('Invite Collaborator'),
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _emailController,
+                            decoration: const InputDecoration(
+                              hintText: 'Enter email address',
+                              prefixIcon: Icon(Icons.email),
+                              errorMaxLines: 2,
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (email) {
+                              if (email.isNotEmpty) {
+                                widget.onInvite(email.trim());
+                                _emailController.clear();
+                                setState(() => _isInviting = false);
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.filled(
+                          onPressed: () {
+                            final email = _emailController.text.trim();
+                            if (email.isNotEmpty) {
+                              widget.onInvite(email);
+                              _emailController.clear();
+                              setState(() => _isInviting = false);
+                            }
+                          },
+                          icon: const Icon(Icons.send),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.outlined(
+                          onPressed: () => setState(() => _isInviting = false),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
                     ),
-                    const Spacer(),
-                    if (canManageCollaborators)
-                      FilledButton.icon(
-                        onPressed: () => _showInviteDialog(context),
-                        icon: const Icon(Icons.person_add),
-                        label: const Text('Invite'),
-                      ),
-                  ],
-                ),
+                ],
               ),
-              const Divider(),
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  itemCount: collaborators.length,
-                  itemBuilder: (context, index) {
-                    final collaborator = collaborators[index];
-                    return _CollaboratorTile(
-                      collaborator: collaborator,
-                      canEdit: canManageCollaborators &&
-                          collaborator.role != CollaboratorRole.owner,
-                      onRoleChange: onRoleChange,
-                      onRemove: onRemove,
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildHandle(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Container(
-        width: 32,
-        height: 4,
-        decoration: BoxDecoration(
-          color: theme.colorScheme.onSurfaceVariant.withOpacity(0.4),
-          borderRadius: BorderRadius.circular(2),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showInviteDialog(BuildContext context) async {
-    final emailController = TextEditingController();
-
-    return showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Invite Collaborator'),
-        content: TextField(
-          controller: emailController,
-          decoration: const InputDecoration(
-            labelText: 'Email Address',
-            hintText: 'Enter collaborator\'s email',
-          ),
-          keyboardType: TextInputType.emailAddress,
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final email = emailController.text.trim();
-              if (email.isNotEmpty) {
-                onInvite(email);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Invite'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CollaboratorTile extends StatelessWidget {
-  final Collaborator collaborator;
-  final bool canEdit;
-  final Function(String, CollaboratorRole) onRoleChange;
-  final Function(String) onRemove;
-
-  const _CollaboratorTile({
-    required this.collaborator,
-    required this.canEdit,
-    required this.onRoleChange,
-    required this.onRemove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundImage: collaborator.photoUrl != null
-            ? NetworkImage(collaborator.photoUrl!)
-            : null,
-        child: collaborator.photoUrl == null
-            ? Text(
-                (collaborator.displayName ?? collaborator.email ?? '')
-                    .characters
-                    .first
-                    .toUpperCase(),
-              )
-            : null,
-      ),
-      title: Text(collaborator.displayName ?? collaborator.email ?? 'Unknown'),
-      subtitle: Text(collaborator.role.displayName),
-      trailing: canEdit
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButton<CollaboratorRole>(
-                  value: collaborator.role,
-                  onChanged: (newRole) {
-                    if (newRole != null) {
-                      onRoleChange(collaborator.id, newRole);
-                    }
-                  },
-                  items: CollaboratorRole.values
-                      .where((role) => role != CollaboratorRole.owner)
-                      .map((role) => DropdownMenuItem(
-                            value: role,
-                            child: Text(role.displayName),
-                          ))
-                      .toList(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.remove_circle_outline),
-                  color: theme.colorScheme.error,
-                  onPressed: () => _showRemoveDialog(context),
-                ),
-              ],
-            )
-          : null,
-    );
-  }
-
-  Future<void> _showRemoveDialog(BuildContext context) {
-    return showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove Collaborator'),
-        content: Text(
-            'Are you sure you want to remove ${collaborator.displayName ?? collaborator.email} from this project?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              onRemove(collaborator.id);
-              Navigator.pop(context);
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
             ),
-            child: const Text('Remove'),
+            const Divider(height: 1),
+          ],
+
+          // Collaborator List
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: widget.collaborators.length,
+              itemBuilder: (context, index) {
+                final collaborator = widget.collaborators[index];
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: theme.colorScheme.primaryContainer,
+                    child: Text(
+                      (collaborator.displayName?.isNotEmpty == true
+                              ? collaborator.displayName!
+                              : collaborator.email ?? 'Unknown')[0]
+                          .toUpperCase(),
+                      style: TextStyle(
+                          color: theme.colorScheme.onPrimaryContainer),
+                    ),
+                  ),
+                  title: Text(
+                    collaborator.displayName ??
+                        collaborator.email ??
+                        'Unknown User',
+                  ),
+                  subtitle: Text(
+                    collaborator.email ?? 'No email provided',
+                  ),
+                  trailing: canManageCollaborators
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            DropdownButton<CollaboratorRole>(
+                              value: collaborator.role,
+                              onChanged:
+                                  collaborator.role == CollaboratorRole.owner
+                                      ? null
+                                      : (newRole) {
+                                          if (newRole != null) {
+                                            widget.onRoleChange(
+                                                collaborator.id, newRole);
+                                          }
+                                        },
+                              items: CollaboratorRole.values
+                                  .map((role) => DropdownMenuItem(
+                                        value: role,
+                                        enabled: role != CollaboratorRole.owner,
+                                        child: Text(role.name),
+                                      ))
+                                  .toList(),
+                            ),
+                            if (collaborator.role != CollaboratorRole.owner)
+                              IconButton(
+                                icon: const Icon(Icons.remove_circle_outline),
+                                color: theme.colorScheme.error,
+                                onPressed: () =>
+                                    widget.onRemove(collaborator.id),
+                              ),
+                          ],
+                        )
+                      : Text(collaborator.role.name),
+                );
+              },
+            ),
           ),
         ],
       ),

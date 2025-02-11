@@ -23,4 +23,7 @@ abstract class MediaRepository {
 
   /// Get the download URL for a media asset
   Future<String> getDownloadUrl(MediaAsset asset);
+
+  /// Watch media assets for a project in real-time
+  Stream<List<MediaAsset>> watchProjectMedia(String projectId);
 }

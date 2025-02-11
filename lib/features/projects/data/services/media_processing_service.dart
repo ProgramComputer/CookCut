@@ -12,9 +12,8 @@ import '../../domain/entities/video_quality.dart';
 import '../../domain/entities/video_processing_config.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/services.dart' show rootBundle;
-import 'openshot_initialization_service.dart';
-import 'openshot_clip_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'ffmpeg_service.dart';
 
 enum ProcessingType { generateThumbnail, compressVideo, transcodeVideo }
 
@@ -37,12 +36,14 @@ class ProcessingTask {
 class MediaProcessingService {
   final FirebaseAuth _auth;
   final SupabaseClient _supabase;
+  final FFmpegService _ffmpegService;
 
   MediaProcessingService({
     FirebaseAuth? auth,
     SupabaseClient? supabase,
   })  : _auth = auth ?? FirebaseAuth.instance,
-        _supabase = supabase ?? Supabase.instance.client;
+        _supabase = supabase ?? Supabase.instance.client,
+        _ffmpegService = FFmpegService();
 
   Future<String?> generateThumbnail(String videoPath,
       {required String projectId}) async {
@@ -81,6 +82,41 @@ class MediaProcessingService {
     } catch (e) {
       print('Error generating thumbnail: $e');
       return null;
+    }
+  }
+
+  Future<String?> compressVideo(String videoPath, VideoQuality quality,
+      {required String projectId}) async {
+    try {
+      // Build FFmpeg command for compression
+      final command = _buildCompressionCommand(quality);
+
+      final result = await _ffmpegService.exportVideoWithOverlays(
+        videoUrl: videoPath,
+        textOverlays: [],
+        timerOverlays: [],
+        recipeOverlays: [],
+        aspectRatio: 16 / 9, // Default aspect ratio
+        projectId: projectId,
+      );
+
+      return result['url'];
+    } catch (e) {
+      print('Error compressing video: $e');
+      return null;
+    }
+  }
+
+  String _buildCompressionCommand(VideoQuality quality) {
+    switch (quality) {
+      case VideoQuality.low:
+        return '-c:v libx264 -crf 28 -preset medium -c:a aac -b:a 128k';
+      case VideoQuality.medium:
+        return '-c:v libx264 -crf 23 -preset medium -c:a aac -b:a 192k';
+      case VideoQuality.high:
+        return '-c:v libx264 -crf 18 -preset medium -c:a aac -b:a 256k';
+      default:
+        return '-c:v libx264 -crf 23 -preset medium -c:a aac -b:a 192k';
     }
   }
 }

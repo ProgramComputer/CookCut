@@ -31,22 +31,32 @@ class CollaboratorRepositoryImpl implements CollaboratorRepository {
         .doc(projectId)
         .collection('collaborators')
         .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) {
-              final data = doc.data();
-              return Collaborator(
-                id: doc.id, // This will be the user's UID
-                projectId: projectId,
-                userId: doc.id, // Using doc.id since it's the user's UID
-                email: data['email'] as String?,
-                displayName: data['displayName'] as String?,
-                photoUrl: data['photoUrl'] as String?,
-                role: CollaboratorRole.values.firstWhere(
-                  (role) => role.name == data['role'],
-                  orElse: () => CollaboratorRole.viewer,
-                ),
-                addedAt: (data['addedAt'] as Timestamp).toDate(),
-              );
-            }).toList());
+        .asyncMap((snapshot) async {
+      final collaborators = <Collaborator>[];
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        // Fetch user data from users collection
+        final userDoc = await _firestore.collection('users').doc(doc.id).get();
+        final userData = userDoc.data();
+
+        collaborators.add(Collaborator(
+          id: doc.id,
+          projectId: projectId,
+          userId: doc.id,
+          email: userData?['email'] as String?,
+          displayName: userData?['displayName'] as String?,
+          photoUrl: userData?['photoUrl'] as String?,
+          role: CollaboratorRole.values.firstWhere(
+            (role) => role.name == data['role'],
+            orElse: () => CollaboratorRole.viewer,
+          ),
+          addedAt: (data['addedAt'] as Timestamp).toDate(),
+        ));
+      }
+
+      return collaborators;
+    });
   }
 
   @override
@@ -56,31 +66,36 @@ class CollaboratorRepositoryImpl implements CollaboratorRepository {
     required CollaboratorRole role,
   }) async {
     try {
-      // 1. Verify current user is project owner
-      if (!await _isProjectOwner(projectId)) {
+      // 1. Check if current user is project owner
+      final project =
+          await _firestore.collection('projects').doc(projectId).get();
+      if (!project.exists ||
+          project.data()?['user_id'] != _auth.currentUser?.uid) {
         return Left(InsufficientPermissionsFailure());
       }
 
-      // 2. Check if user exists in Firebase Auth
-      final userRecord = await _firestore
+      // 2. Find user by email (case insensitive)
+      final normalizedEmail = email.toLowerCase();
+      final userQuery = await _firestore
           .collection('users')
-          .where('email', isEqualTo: email)
+          .where('email', isEqualTo: normalizedEmail)
           .limit(1)
           .get();
 
-      if (userRecord.docs.isEmpty) {
+      if (userQuery.docs.isEmpty) {
         return Left(UserNotFoundFailure());
       }
 
-      final userData = userRecord.docs.first.data();
-      final userId = userRecord.docs.first.id;
+      final userDoc = userQuery.docs.first;
+      final userData = userDoc.data();
+      final userId = userDoc.id;
 
       // 3. Check if user is already a collaborator
       final collaboratorDoc = await _firestore
           .collection('projects')
           .doc(projectId)
           .collection('collaborators')
-          .doc(userId) // Using user's UID as document ID
+          .doc(userId)
           .get();
 
       if (collaboratorDoc.exists) {
@@ -88,15 +103,16 @@ class CollaboratorRepositoryImpl implements CollaboratorRepository {
       }
 
       // 4. Add collaborator using user's UID as document ID
+      final now = DateTime.now();
       final collaborator = Collaborator(
         id: userId,
         projectId: projectId,
         userId: userId,
-        email: email,
+        email: userData['email'] as String?,
         displayName: userData['displayName'] as String?,
         photoUrl: userData['photoUrl'] as String?,
         role: role,
-        addedAt: DateTime.now(),
+        addedAt: now,
       );
 
       await _firestore
@@ -105,11 +121,11 @@ class CollaboratorRepositoryImpl implements CollaboratorRepository {
           .collection('collaborators')
           .doc(userId)
           .set({
-        'email': collaborator.email,
-        'displayName': collaborator.displayName,
-        'photoUrl': collaborator.photoUrl,
-        'role': collaborator.role.name,
-        'addedAt': Timestamp.fromDate(collaborator.addedAt),
+        'role': role.name,
+        'addedAt': Timestamp.fromDate(now),
+        'email': userData['email'],
+        'displayName': userData['displayName'],
+        'photoUrl': userData['photoUrl'],
       });
 
       return Right(collaborator);
@@ -124,38 +140,39 @@ class CollaboratorRepositoryImpl implements CollaboratorRepository {
     required CollaboratorRole newRole,
   }) async {
     try {
-      // Find the project this collaborator belongs to
-      final collaboratorQuery = await _firestore
-          .collectionGroup('collaborators')
-          .where(FieldPath.documentId, isEqualTo: collaboratorId)
-          .limit(1)
+      // Get all projects where the current user is the owner
+      final projectsQuery = await _firestore
+          .collection('projects')
+          .where('user_id', isEqualTo: _auth.currentUser?.uid)
           .get();
 
-      if (collaboratorQuery.docs.isEmpty) {
-        return Left(CollaboratorNotFoundFailure());
+      // Search for the collaborator in each project
+      for (final projectDoc in projectsQuery.docs) {
+        final collaboratorDoc = await _firestore
+            .collection('projects')
+            .doc(projectDoc.id)
+            .collection('collaborators')
+            .doc(collaboratorId)
+            .get();
+
+        if (collaboratorDoc.exists) {
+          final data = collaboratorDoc.data()!;
+          await collaboratorDoc.reference.update({'role': newRole.name});
+
+          return Right(Collaborator(
+            id: collaboratorDoc.id,
+            projectId: projectDoc.id,
+            userId: collaboratorDoc.id,
+            email: data['email'] as String?,
+            displayName: data['displayName'] as String?,
+            photoUrl: data['photoUrl'] as String?,
+            role: newRole,
+            addedAt: (data['addedAt'] as Timestamp).toDate(),
+          ));
+        }
       }
 
-      final collaboratorDoc = collaboratorQuery.docs.first;
-      final projectId = collaboratorDoc.reference.parent.parent!.id;
-
-      // Verify current user is project owner
-      if (!await _isProjectOwner(projectId)) {
-        return Left(InsufficientPermissionsFailure());
-      }
-
-      final data = collaboratorDoc.data();
-      await collaboratorDoc.reference.update({'role': newRole.name});
-
-      return Right(Collaborator(
-        id: collaboratorDoc.id,
-        projectId: projectId,
-        userId: collaboratorDoc.id,
-        email: data['email'] as String?,
-        displayName: data['displayName'] as String?,
-        photoUrl: data['photoUrl'] as String?,
-        role: newRole,
-        addedAt: (data['addedAt'] as Timestamp).toDate(),
-      ));
+      return Left(CollaboratorNotFoundFailure());
     } catch (e) {
       return Left(ServerFailure());
     }
@@ -165,26 +182,28 @@ class CollaboratorRepositoryImpl implements CollaboratorRepository {
   Future<Either<Failure, void>> removeCollaborator(
       String collaboratorId) async {
     try {
-      final collaboratorQuery = await _firestore
-          .collectionGroup('collaborators')
-          .where(FieldPath.documentId, isEqualTo: collaboratorId)
-          .limit(1)
+      // Get all projects where the current user is the owner
+      final projectsQuery = await _firestore
+          .collection('projects')
+          .where('user_id', isEqualTo: _auth.currentUser?.uid)
           .get();
 
-      if (collaboratorQuery.docs.isEmpty) {
-        return Left(CollaboratorNotFoundFailure());
+      // Search for the collaborator in each project
+      for (final projectDoc in projectsQuery.docs) {
+        final collaboratorDoc = await _firestore
+            .collection('projects')
+            .doc(projectDoc.id)
+            .collection('collaborators')
+            .doc(collaboratorId)
+            .get();
+
+        if (collaboratorDoc.exists) {
+          await collaboratorDoc.reference.delete();
+          return const Right(null);
+        }
       }
 
-      final collaboratorDoc = collaboratorQuery.docs.first;
-      final projectId = collaboratorDoc.reference.parent.parent!.id;
-
-      // Verify current user is project owner
-      if (!await _isProjectOwner(projectId)) {
-        return Left(InsufficientPermissionsFailure());
-      }
-
-      await collaboratorDoc.reference.delete();
-      return const Right(null);
+      return Left(CollaboratorNotFoundFailure());
     } catch (e) {
       return Left(ServerFailure());
     }
@@ -200,6 +219,48 @@ class CollaboratorRepositoryImpl implements CollaboratorRepository {
           .get();
 
       return Right(userRecord.docs.isNotEmpty);
+    } catch (e) {
+      return Left(ServerFailure());
+    }
+  }
+
+  @override
+  Future<Either<Failure, CollaboratorRole>> getCurrentUserRole(
+      String projectId) async {
+    try {
+      final userId = _auth.currentUser?.uid;
+      if (userId == null) {
+        return Right(CollaboratorRole.viewer);
+      }
+
+      // Check if user is owner
+      final project =
+          await _firestore.collection('projects').doc(projectId).get();
+      if (!project.exists) {
+        return Left(ProjectNotFoundFailure());
+      }
+
+      if (project.data()?['user_id'] == userId) {
+        return Right(CollaboratorRole.owner);
+      }
+
+      // Check collaborator role
+      final collaboratorDoc = await _firestore
+          .collection('projects')
+          .doc(projectId)
+          .collection('collaborators')
+          .doc(userId)
+          .get();
+
+      if (!collaboratorDoc.exists) {
+        return Right(CollaboratorRole.viewer);
+      }
+
+      final roleStr = collaboratorDoc.data()?['role'] as String?;
+      return Right(CollaboratorRole.values.firstWhere(
+        (role) => role.name == roleStr,
+        orElse: () => CollaboratorRole.viewer,
+      ));
     } catch (e) {
       return Left(ServerFailure());
     }

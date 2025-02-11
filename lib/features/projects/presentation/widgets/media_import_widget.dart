@@ -7,48 +7,22 @@ import 'dart:developer' as developer;
 import '../bloc/media_bloc.dart';
 import '../../domain/entities/media_asset.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../domain/entities/video_processing_config.dart';
-import 'dart:async';
 
 class MediaImportWidget extends StatefulWidget {
   final String projectId;
-  final double? width;
-  final double? height;
 
   const MediaImportWidget({
     super.key,
     required this.projectId,
-    this.width,
-    this.height,
   });
 
   @override
   State<MediaImportWidget> createState() => _MediaImportWidgetState();
 }
 
-class _MediaImportWidgetState extends State<MediaImportWidget>
-    with SingleTickerProviderStateMixin {
+class _MediaImportWidgetState extends State<MediaImportWidget> {
   bool _isLoading = false;
   String? _error;
-  MediaType _selectedType = MediaType.rawFootage;
-  late final AnimationController _controller;
-  late final Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 100),
-      vsync: this,
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(_controller);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
 
   void _setError(String error) {
     setState(() {
@@ -61,30 +35,12 @@ class _MediaImportWidgetState extends State<MediaImportWidget>
     setState(() => _error = null);
   }
 
-  Future<void> _pickFile() async {
+  Future<void> _importMedia() async {
     _clearError();
     try {
-      setState(() => _isLoading = true);
-
-      final FileType fileType;
-      final List<String> allowedExtensions;
-
-      switch (_selectedType) {
-        case MediaType.rawFootage:
-        case MediaType.editedClip:
-          fileType = FileType.video;
-          allowedExtensions = ['mp4', 'mov', 'avi'];
-          break;
-        case MediaType.audio:
-          fileType = FileType.custom;
-          allowedExtensions = ['mp3', 'wav', 'm4a', 'aac'];
-          break;
-      }
-
       final result = await FilePicker.platform.pickFiles(
-        type: fileType,
-        allowedExtensions:
-            fileType == FileType.custom ? allowedExtensions : null,
+        type: FileType.any,
+        allowedExtensions: null,
         allowMultiple: false,
       );
 
@@ -93,8 +49,6 @@ class _MediaImportWidgetState extends State<MediaImportWidget>
       if (result != null && result.files.isNotEmpty) {
         final file = File(result.files.first.path!);
         await _validateAndProcessFile(file);
-      } else {
-        _setError('Please select a file to upload');
       }
     } catch (e) {
       developer.log(
@@ -104,29 +58,47 @@ class _MediaImportWidgetState extends State<MediaImportWidget>
       if (mounted) {
         _setError('Error selecting file: $e');
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
     }
   }
 
-  Future<void> _captureMedia() async {
+  Future<void> _showRecordingOptions() async {
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.videocam_outlined),
+              title: const Text('Record Video'),
+              onTap: () {
+                Navigator.pop(context);
+                _recordVideo();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.mic_outlined),
+              title: const Text('Record Audio'),
+              onTap: () {
+                Navigator.pop(context);
+                _recordAudio();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _recordVideo() async {
     _clearError();
     try {
       setState(() => _isLoading = true);
-      final picker = ImagePicker();
 
-      final XFile? mediaFile;
-      switch (_selectedType) {
-        case MediaType.rawFootage:
-        case MediaType.editedClip:
-          mediaFile = await picker.pickVideo(source: ImageSource.camera);
-          break;
-        case MediaType.audio:
-          _setError('Capture not supported for audio');
-          return;
-      }
+      final picker = ImagePicker();
+      final mediaFile = await picker.pickVideo(source: ImageSource.camera);
 
       if (!mounted) return;
 
@@ -136,11 +108,49 @@ class _MediaImportWidgetState extends State<MediaImportWidget>
       }
     } catch (e) {
       developer.log(
-        'Error capturing media: $e',
+        'Error recording video: $e',
         name: 'MediaImportWidget',
       );
       if (mounted) {
-        _setError('Error capturing media: $e');
+        _setError('Error recording video: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _recordAudio() async {
+    _clearError();
+    try {
+      setState(() => _isLoading = true);
+
+      // TODO: Implement audio recording
+      // For now, show a dialog explaining the limitation
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Audio Recording'),
+            content: const Text(
+                'Audio recording will be available in the next update. For now, you can import existing audio files.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      developer.log(
+        'Error recording audio: $e',
+        name: 'MediaImportWidget',
+      );
+      if (mounted) {
+        _setError('Error recording audio: $e');
       }
     } finally {
       if (mounted) {
@@ -153,35 +163,39 @@ class _MediaImportWidgetState extends State<MediaImportWidget>
     try {
       final mimeType = lookupMimeType(file.path);
       final extension = file.path.split('.').last.toLowerCase();
+
       developer.log(
           'Validating file: ${file.path}, mime type: $mimeType, extension: $extension',
           name: 'MediaImportWidget');
 
-      if (_selectedType == MediaType.audio) {
-        if (!['mp3', 'wav', 'm4a', 'aac'].contains(extension)) {
-          _setError(
-              'Unsupported audio format. Please use MP3, WAV, M4A, or AAC files.');
-          return;
-        }
-      } else if (_selectedType == MediaType.rawFootage ||
-          _selectedType == MediaType.editedClip) {
-        if (!['mp4', 'mov', 'avi'].contains(extension)) {
-          _setError(
-              'Unsupported video format. Please use MP4, MOV, or AVI files.');
-          return;
-        }
+      // Determine media type from mime type
+      final MediaType mediaType;
+      if (['mp3', 'wav', 'm4a', 'aac'].contains(extension)) {
+        mediaType = MediaType.audio;
+      } else if (['mp4', 'mov', 'avi'].contains(extension)) {
+        mediaType = MediaType.rawFootage;
+      } else {
+        _setError(
+            'Unsupported file format. Please use MP4, MOV, AVI for video or MP3, WAV, M4A, AAC for audio.');
+        return;
       }
 
-      // Direct upload for all files
+      // Show immediate feedback
       setState(() => _isLoading = true);
+
+      // Add a small delay to show the loading state
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      if (!mounted) return;
+
+      // Upload the file
       context.read<MediaBloc>().add(
             UploadMedia(
               projectId: widget.projectId,
               filePath: file.path,
-              type: _selectedType,
+              type: mediaType,
               metadata: {
-                'fileType':
-                    _selectedType == MediaType.audio ? 'audio' : 'video',
+                'fileType': mediaType == MediaType.audio ? 'audio' : 'video',
                 'extension': extension,
                 'projectId': widget.projectId,
               },
@@ -198,27 +212,17 @@ class _MediaImportWidgetState extends State<MediaImportWidget>
     }
   }
 
-  String _getFileSupportText() {
-    switch (_selectedType) {
-      case MediaType.rawFootage:
-      case MediaType.editedClip:
-        return 'Supports MP4 and MOV video files';
-      case MediaType.audio:
-        return 'Supports MP3, WAV, and M4A audio files';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final isSmallScreen = mediaQuery.size.width < 600;
     final theme = Theme.of(context);
 
     return Material(
       color: Colors.transparent,
       child: BlocListener<MediaBloc, MediaState>(
         listener: (context, state) {
-          if (state.status == MediaStatus.error && state.error != null) {
+          if (state.status == MediaStatus.success) {
+            setState(() => _isLoading = false);
+          } else if (state.status == MediaStatus.error && state.error != null) {
             developer.log(
               'MediaBloc error: ${state.error}',
               name: 'MediaImportWidget',
@@ -226,99 +230,48 @@ class _MediaImportWidgetState extends State<MediaImportWidget>
             _setError(state.error!);
           }
         },
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (!isSmallScreen) ...[
-                SegmentedButton<MediaType>(
-                  segments: const [
-                    ButtonSegment<MediaType>(
-                      value: MediaType.rawFootage,
-                      label: Text('Raw Footage'),
-                      icon: Icon(Icons.videocam_outlined),
-                    ),
-                    ButtonSegment<MediaType>(
-                      value: MediaType.editedClip,
-                      label: Text('Edited Clip'),
-                      icon: Icon(Icons.movie_outlined),
-                    ),
-                    ButtonSegment<MediaType>(
-                      value: MediaType.audio,
-                      label: Text('Audio'),
-                      icon: Icon(Icons.audiotrack_outlined),
-                    ),
-                  ],
-                  selected: {_selectedType},
-                  onSelectionChanged: (Set<MediaType> selection) {
-                    setState(() => _selectedType = selection.first);
-                  },
-                ),
-                const SizedBox(height: 16),
-              ],
-              Container(
-                width: widget.width ?? double.infinity,
-                height: widget.height ?? (isSmallScreen ? 200 : 300),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: theme.colorScheme.outline.withOpacity(0.2),
+        child: Stack(
+          children: [
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      FloatingActionButton.extended(
+                        onPressed: _importMedia,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Import Media'),
+                      ),
+                      const SizedBox(width: 16),
+                      FloatingActionButton(
+                        onPressed: _showRecordingOptions,
+                        child: const Icon(Icons.fiber_manual_record),
+                      ),
+                    ],
                   ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (_selectedType != MediaType.audio) ...[
-                      GestureDetector(
-                        onTapDown: (_) => _controller.forward(),
-                        onTapUp: (_) => _controller.reverse(),
-                        onTapCancel: () => _controller.reverse(),
-                        child: ScaleTransition(
-                          scale: _scaleAnimation,
-                          child: IconButton.filled(
-                            onPressed: _captureMedia,
-                            icon: const Icon(Icons.camera_alt_outlined),
-                            iconSize: 32,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text('Capture Video'),
-                      const Text('or'),
-                    ],
-                    const SizedBox(height: 8),
-                    FilledButton.icon(
-                      onPressed: _pickFile,
-                      icon: const Icon(Icons.upload_file),
-                      label: Text(_selectedType == MediaType.audio
-                          ? 'Upload Audio'
-                          : 'Upload Video'),
-                    ),
-                    const SizedBox(height: 8),
+                  if (_error != null) ...[
+                    const SizedBox(height: 16),
                     Text(
-                      _getFileSupportText(),
+                      _error!,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                        color: theme.colorScheme.error,
                       ),
+                      textAlign: TextAlign.center,
                     ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        _error!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.error,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
                   ],
+                ],
+              ),
+            ),
+            if (_isLoading)
+              Container(
+                color: Colors.black54,
+                child: const Center(
+                  child: CircularProgressIndicator(),
                 ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

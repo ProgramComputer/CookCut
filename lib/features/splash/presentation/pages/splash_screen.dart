@@ -43,7 +43,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
   String get logoAsset {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return isDark ? 'assets/icon/logo_dark.svg' : 'assets/icon/logo.svg';
+    return isDark
+        ? 'assets/icon/logo_dark_fixed.svg'
+        : 'assets/icon/logo_fixed.svg';
   }
 
   @override
@@ -83,11 +85,15 @@ class _SplashScreenState extends State<SplashScreen> {
                       scale: 0.8 + (value * 0.2),
                       child: Hero(
                         tag: 'app_logo',
-                        child: SvgPicture.asset(
-                          logoAsset,
+                        child: SizedBox(
                           width: 200,
                           height: 200,
-                          fit: BoxFit.contain,
+                          child: SvgPicture.asset(
+                            logoAsset,
+                            width: 200,
+                            height: 200,
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
                     ),

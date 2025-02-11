@@ -59,7 +59,7 @@ CookCut is a video editing Android app tailored for cooking creators, enabling t
    - Collaboration data
    - Real-time session data
 
-3. **OpenShot Cloud**
+3. **FFMPEG EC2 Instance**
    - Temporary video processing
    - No permanent storage
    - Used only during active editing/processing
@@ -165,10 +165,10 @@ CookCut is a video editing Android app tailored for cooking creators, enabling t
   - [ ] Delete segments
   - [ ] Reorder segments
   - [ ] Basic transitions between segments
-  - [x] OpenShot integration for processing
+  - [x] FFMPEG EC2 Instance integration for processing
 
 ### 2. Audio Integration 🎵
-- [ ] **Background Music (Pixabay Integration)**
+- [ ] **Background Music (Jamendo Integration)**
   - [ ] Music search and preview functionality
   - [ ] Volume control for background music
   - [ ] Multiple audio track support
@@ -293,7 +293,7 @@ dependencies:
   chewie: ^1.7.1        # Better video player UI
   
   # API & Network
-  dio: ^5.3.2          # For OpenShot API calls
+  dio: ^5.3.2          # For FFMPEG API calls
   retrofit: ^4.0.1     # Type-safe API calls
   json_annotation: ^4.8.1
   supabase_flutter: ^1.10.25  # Supabase SDK
@@ -334,35 +334,8 @@ dev_dependencies:
   hive_generator: ^2.0.1
 ```
 
-### OpenShot API Service
-```dart
-// Example OpenShot API service structure
-@RestApi(baseUrl: ENV.OPENSHOT_API_URL)
-abstract class OpenShotService {
-  factory OpenShotService(Dio dio) = _OpenShotService;
-  
-  @POST('/projects/{id}/export/')
-  Future<Response> exportProject(
-    @Path('id') String projectId,
-    @Body() Map<String, dynamic> exportSettings
-  );
-  
-  @GET('/projects/{id}/status/')
-  Future<Response> getProjectStatus(
-    @Path('id') String projectId
-  );
-}
 ```
-
-### AWS Configuration
-```
-# AWS Configuration (add to .env)
-AWS_S3_BUCKET=your_bucket_name
-AWS_REGION=your_region
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-OPENSHOT_API_URL=your_openshot_url
-OPENSHOT_API_KEY=your_openshot_key
+AWS_EC2_FFMPEG=your_ec2_user@your_ec2_instance_public_ip
 ```
 
 ### Storage Services
@@ -465,25 +438,7 @@ create policy "Users can update their own projects"
 ```
 
 ### Storage Buckets (Supabase)
-
-```sql
--- Raw videos bucket
-insert into storage.buckets (id, name)
-values ('raw-videos', 'Raw Videos');
-
--- Processed videos bucket
-insert into storage.buckets (id, name)
-values ('processed-videos', 'Processed Videos');
-
--- Bucket policies
-create policy "Authenticated users can upload raw videos"
-  on storage.objects for insert
-  with check (bucket_id = 'raw-videos' and auth.role() = 'authenticated');
-
-create policy "Users can view their own videos"
-  on storage.objects for select
-  using (bucket_id in ('raw-videos', 'processed-videos') and auth.uid() = owner);
-```
+bucket is cookcut-media
 
 ## Implementation Timeline
 

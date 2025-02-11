@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
-import '../../data/services/pixabay_service.dart';
+import 'package:audio_session/audio_session.dart';
+import '../../data/services/jamendo_service.dart';
 import 'audio_waveform.dart';
+import 'dart:async';
 
 class BackgroundMusicBrowser extends StatefulWidget {
   final Function(String path) onMusicSelected;
@@ -18,77 +20,158 @@ class BackgroundMusicBrowser extends StatefulWidget {
 }
 
 class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
-  final _pixabayService = PixabayService();
+  final _jamendoService = JamendoService();
   final _searchController = TextEditingController();
-  final _audioPlayer = AudioPlayer();
+  late final AudioPlayer _audioPlayer;
+  bool _isAudioInitialized = false;
 
-  List<PixabayMusic> _musicList = [];
+  List<JamendoMusic> _musicList = [];
   bool _isLoading = false;
   String? _error;
   int? _playingIndex;
   String? _selectedCategory;
+  bool _isPlaybackLoading = false;
+  int? _loadingIndex;
+  Map<int, double> _loadingProgress = {}; // Track progress per index
+
+  // Debouncer for search
+  Timer? _searchDebouncer;
 
   final _categories = [
     'All',
-    'Film',
-    'Ambient',
-    'Corporate',
-    'Jazz',
-    'Rock',
-    'Classical',
-    'Pop',
+    'ambient',
+    'classical',
+    'electronic',
+    'jazz',
+    'lounge',
+    'pop',
+    'rock',
+    'soundtrack',
   ];
 
   @override
   void initState() {
     super.initState();
+    _initAudioPlayer();
     _searchMusic('');
   }
 
   @override
   void dispose() {
+    _searchDebouncer?.cancel();
     _searchController.dispose();
     _audioPlayer.dispose();
-    _pixabayService.dispose();
+    _jamendoService.dispose();
     super.dispose();
   }
 
-  Future<void> _searchMusic(String query) async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-
+  Future<void> _initAudioPlayer() async {
     try {
-      final results = await _pixabayService.searchMusic(
-        query: query,
-        category: _selectedCategory == 'All' ? null : _selectedCategory,
-      );
-      setState(() {
-        _musicList = results;
-        _isLoading = false;
-      });
+      _audioPlayer = AudioPlayer();
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playback,
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.duckOthers,
+        avAudioSessionMode: AVAudioSessionMode.defaultMode,
+      ));
+      setState(() => _isAudioInitialized = true);
     } catch (e) {
       setState(() {
-        _error = e.toString();
-        _isLoading = false;
+        _error = 'Failed to initialize audio player: $e';
+        _isAudioInitialized = false;
       });
     }
   }
 
+  Future<void> _searchMusic(String query) async {
+    // Cancel any pending search
+    _searchDebouncer?.cancel();
+
+    // Debounce the search to prevent too many API calls
+    _searchDebouncer = Timer(const Duration(milliseconds: 500), () async {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+
+      try {
+        final results = await _jamendoService.searchMusic(
+          query: query,
+          tags: _selectedCategory == 'All' ? null : _selectedCategory,
+        );
+        if (mounted) {
+          setState(() {
+            _musicList = results;
+            _isLoading = false;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _error = e.toString();
+            _isLoading = false;
+          });
+        }
+      }
+    });
+  }
+
   Future<void> _playPreview(int index) async {
+    if (!_isAudioInitialized || _isPlaybackLoading) {
+      return;
+    }
+
     if (_playingIndex == index) {
       await _audioPlayer.stop();
       setState(() => _playingIndex = null);
-    } else {
+      return;
+    }
+
+    setState(() {
+      _isPlaybackLoading = true;
+      _loadingIndex = index;
+    });
+
+    try {
       final music = _musicList[index];
-      try {
-        await _audioPlayer.setUrl(music.previewUrl);
-        await _audioPlayer.play();
-        setState(() => _playingIndex = index);
-      } catch (e) {
+
+      // Stop current playback
+      await _audioPlayer.stop();
+
+      // Get cached or download URL
+      final audioUrl = await _jamendoService.downloadMusic(music.audioUrl);
+
+      if (!mounted) return;
+
+      // Set the audio source and start playback
+      await _audioPlayer.setUrl(audioUrl);
+      await _audioPlayer.play();
+
+      setState(() {
+        _playingIndex = index;
+        _isPlaybackLoading = false;
+        _loadingIndex = null;
+      });
+
+      // Add completion listener
+      _audioPlayer.playerStateStream.listen((state) {
+        if (state.processingState == ProcessingState.completed && mounted) {
+          setState(() => _playingIndex = null);
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isPlaybackLoading = false;
+          _loadingIndex = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error playing preview: $e')),
+          SnackBar(
+            content: Text('Error playing preview: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     }
@@ -171,9 +254,23 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
 
     if (_error != null) {
       return Center(
-        child: Text(
-          _error!,
-          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () {
+                setState(() => _error = null);
+                _initAudioPlayer();
+              },
+              child: const Text('Retry'),
+            ),
+          ],
         ),
       );
     }
@@ -189,28 +286,85 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
       itemBuilder: (context, index) {
         final music = _musicList[index];
         final isPlaying = _playingIndex == index;
+        final isLoading = _loadingIndex == index;
 
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
-            title: Text(music.title),
-            subtitle: Text(music.user),
+            title: Text(music.name),
+            subtitle: Text(music.artist),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(music.duration),
                 const SizedBox(width: 8),
-                IconButton(
-                  icon: Icon(isPlaying ? Icons.stop : Icons.play_arrow),
-                  onPressed: () => _playPreview(index),
-                ),
+                if (isLoading)
+                  SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      value: _loadingProgress[index] ?? 0.0,
+                    ),
+                  )
+                else
+                  IconButton(
+                    icon: Icon(isPlaying ? Icons.stop : Icons.play_arrow),
+                    onPressed: () => _playPreview(index),
+                  ),
               ],
             ),
             onTap: () async {
-              final path =
-                  await _pixabayService.downloadMusic(music.downloadUrl);
-              if (mounted) {
-                widget.onMusicSelected(path);
+              if (_isPlaybackLoading) {
+                print('Ignoring tap - already loading');
+                return;
+              }
+
+              final currentIndex = index;
+              print('Starting download for track at index $currentIndex');
+              setState(() {
+                _isPlaybackLoading = true;
+                _loadingIndex = currentIndex;
+                _loadingProgress[currentIndex] = 0.0;
+              });
+              print('Initial state set - loading: true, progress: 0%');
+
+              try {
+                final path = await _jamendoService.downloadMusic(
+                  music.audioUrl,
+                  onProgress: (progress) {
+                    if (mounted) {
+                      print(
+                          'Progress update for index $currentIndex: ${(progress * 100).toStringAsFixed(1)}%');
+                      setState(() {
+                        _loadingProgress[currentIndex] = progress;
+                      });
+                    }
+                  },
+                );
+                print('Download completed successfully. Path: $path');
+                if (mounted) {
+                  widget.onMusicSelected(path);
+                }
+              } catch (e) {
+                print('Error during download: $e');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error selecting music: ${e.toString()}'),
+                      backgroundColor: Theme.of(context).colorScheme.error,
+                    ),
+                  );
+                }
+              } finally {
+                if (mounted) {
+                  print('Cleaning up state for index $currentIndex');
+                  setState(() {
+                    _isPlaybackLoading = false;
+                    _loadingIndex = null;
+                    _loadingProgress.remove(currentIndex);
+                  });
+                }
               }
             },
           ),

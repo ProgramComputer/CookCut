@@ -64,14 +64,14 @@ class MediaRepositoryImpl implements MediaRepository {
 
     // Upload to Supabase Storage
     try {
-        await _supabase.storage.from('cookcut-media').upload(
-              storagePath,
-              file,
-              fileOptions: FileOptions(
-                contentType: mimeType,
-                upsert: true,
-              ),
-            );
+      await _supabase.storage.from('cookcut-media').upload(
+            storagePath,
+            file,
+            fileOptions: FileOptions(
+              contentType: mimeType,
+              upsert: true,
+            ),
+          );
 
       // Get the file URL
       final fileUrl =
@@ -103,6 +103,7 @@ class MediaRepositoryImpl implements MediaRepository {
         uploadedAt: DateTime.now(),
         thumbnailUrl: thumbnailUrl,
         metadata: metadata,
+        position: metadata['position'] as int? ?? 0,
       );
     } catch (e) {
       // Clean up any uploaded files if the process fails
@@ -139,6 +140,7 @@ class MediaRepositoryImpl implements MediaRepository {
         uploadedAt: (data['uploadedAt'] as Timestamp).toDate(),
         thumbnailUrl: data['thumbnailUrl'],
         metadata: Map<String, dynamic>.from(data['metadata'] ?? {}),
+        position: data['position'] as int? ?? 0,
       );
     }).toList();
   }
@@ -204,5 +206,33 @@ class MediaRepositoryImpl implements MediaRepository {
     return _supabase.storage
         .from('cookcut-media')
         .createSignedUrl(storagePath, 60 * 60 * 24 * 7); // 7 days expiry
+  }
+
+  @override
+  Stream<List<MediaAsset>> watchProjectMedia(String projectId) {
+    return _firestore
+        .collection('projects')
+        .doc(projectId)
+        .collection('media_assets')
+        .orderBy('uploadedAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) {
+              final data = doc.data();
+              return MediaAsset(
+                id: doc.id,
+                projectId: projectId,
+                type: MediaType.values.firstWhere(
+                  (e) => e.name == data['type'],
+                  orElse: () => MediaType.rawFootage,
+                ),
+                fileUrl: data['fileUrl'],
+                fileName: data['fileName'],
+                fileSize: data['fileSize'],
+                uploadedAt: (data['uploadedAt'] as Timestamp).toDate(),
+                thumbnailUrl: data['thumbnailUrl'],
+                metadata: Map<String, dynamic>.from(data['metadata'] ?? {}),
+                position: data['position'] as int? ?? 0,
+              );
+            }).toList());
   }
 }

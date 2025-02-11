@@ -14,6 +14,19 @@ abstract class MediaEvent extends Equatable {
   List<Object?> get props => [];
 }
 
+class StartWatchingProjectMedia extends MediaEvent {
+  final String projectId;
+
+  const StartWatchingProjectMedia(this.projectId);
+
+  @override
+  List<Object?> get props => [projectId];
+}
+
+class StopWatchingProjectMedia extends MediaEvent {
+  const StopWatchingProjectMedia();
+}
+
 class LoadProjectMedia extends MediaEvent {
   final String projectId;
 
@@ -59,12 +72,14 @@ class MediaState extends Equatable {
   final List<MediaAsset> assets;
   final String? error;
   final double? processingProgress;
+  final bool isWatching;
 
   const MediaState({
     this.status = MediaStatus.initial,
     this.assets = const [],
     this.error,
     this.processingProgress,
+    this.isWatching = false,
   });
 
   MediaState copyWith({
@@ -72,30 +87,84 @@ class MediaState extends Equatable {
     List<MediaAsset>? assets,
     String? error,
     double? processingProgress,
+    bool? isWatching,
   }) {
     return MediaState(
       status: status ?? this.status,
       assets: assets ?? this.assets,
       error: error,
       processingProgress: processingProgress ?? this.processingProgress,
+      isWatching: isWatching ?? this.isWatching,
     );
   }
 
   @override
-  List<Object?> get props => [status, assets, error, processingProgress];
+  List<Object?> get props =>
+      [status, assets, error, processingProgress, isWatching];
 }
 
 // Bloc
 class MediaBloc extends Bloc<MediaEvent, MediaState> {
   final MediaRepository _mediaRepository;
+  StreamSubscription<List<MediaAsset>>? _mediaSubscription;
 
   MediaBloc({
     required MediaRepository mediaRepository,
   })  : _mediaRepository = mediaRepository,
         super(const MediaState()) {
+    on<StartWatchingProjectMedia>(_onStartWatchingProjectMedia);
+    on<StopWatchingProjectMedia>(_onStopWatchingProjectMedia);
     on<LoadProjectMedia>(_onLoadProjectMedia);
     on<UploadMedia>(_onUploadMedia);
     on<DeleteMedia>(_onDeleteMedia);
+    on<_UpdateMediaAssets>(_onUpdateMediaAssets);
+    on<_MediaError>(_onMediaError);
+  }
+
+  Future<void> _onStartWatchingProjectMedia(
+    StartWatchingProjectMedia event,
+    Emitter<MediaState> emit,
+  ) async {
+    _mediaSubscription?.cancel();
+
+    emit(state.copyWith(status: MediaStatus.loading, isWatching: true));
+
+    _mediaSubscription =
+        _mediaRepository.watchProjectMedia(event.projectId).listen(
+              (assets) => add(_UpdateMediaAssets(assets)),
+              onError: (error) => add(_MediaError(error.toString())),
+            );
+  }
+
+  Future<void> _onStopWatchingProjectMedia(
+    StopWatchingProjectMedia event,
+    Emitter<MediaState> emit,
+  ) async {
+    await _mediaSubscription?.cancel();
+    _mediaSubscription = null;
+    emit(state.copyWith(isWatching: false));
+  }
+
+  // Add these private events to handle stream updates
+  void _onUpdateMediaAssets(
+      _UpdateMediaAssets event, Emitter<MediaState> emit) {
+    emit(state.copyWith(
+      status: MediaStatus.success,
+      assets: event.assets,
+    ));
+  }
+
+  void _onMediaError(_MediaError event, Emitter<MediaState> emit) {
+    emit(state.copyWith(
+      status: MediaStatus.error,
+      error: event.message,
+    ));
+  }
+
+  @override
+  Future<void> close() {
+    _mediaSubscription?.cancel();
+    return super.close();
   }
 
   Future<void> _onLoadProjectMedia(
@@ -250,4 +319,23 @@ class MediaBloc extends Bloc<MediaEvent, MediaState> {
       ));
     }
   }
+}
+
+// Private events for stream handling
+class _UpdateMediaAssets extends MediaEvent {
+  final List<MediaAsset> assets;
+
+  const _UpdateMediaAssets(this.assets);
+
+  @override
+  List<Object?> get props => [assets];
+}
+
+class _MediaError extends MediaEvent {
+  final String message;
+
+  const _MediaError(this.message);
+
+  @override
+  List<Object?> get props => [message];
 }

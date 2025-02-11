@@ -62,7 +62,12 @@ class _ProjectsListViewState extends State<_ProjectsListView> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Projects'),
+        title: Text(
+          'My Projects',
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onBackground,
+              ),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
@@ -270,7 +275,12 @@ class _ProjectsListViewState extends State<_ProjectsListView> {
                                       project.title,
                                       style: Theme.of(context)
                                           .textTheme
-                                          .titleMedium,
+                                          .titleMedium
+                                          ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                          ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),

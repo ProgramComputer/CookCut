@@ -124,14 +124,9 @@ class ProjectCard extends StatelessWidget {
                     Text(
                       project.title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.white,
-                        shadows: [
-                          const Shadow(
-                            offset: Offset(0, 1),
-                            blurRadius: 2,
+                            color: const Color(0xFFFAFAFA),
+                            fontWeight: FontWeight.w600,
                           ),
-                        ],
-                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),

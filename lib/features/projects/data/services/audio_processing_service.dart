@@ -78,11 +78,11 @@ class AudioProcessingService {
   final SupabaseClient _supabase;
   final _processingQueue = StreamController<ProcessingTask>.broadcast();
   final _audioPlayer = AudioPlayer();
-  final _recorder = Record();
+  final _recorder = AudioRecorder();
   RecorderController? _recorderController;
   PlayerController? _playerController;
   final Map<String, AudioTrack> _audioTracks = {};
-  
+
   AudioProcessingService({SupabaseClient? supabase})
       : _supabase = supabase ?? Supabase.instance.client {
     _initializeQueue();
@@ -93,9 +93,11 @@ class AudioProcessingService {
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration(
       avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
-      avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth,
+      avAudioSessionCategoryOptions:
+          AVAudioSessionCategoryOptions.allowBluetooth,
       avAudioSessionMode: AVAudioSessionMode.spokenAudio,
-      avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
+      avAudioSessionRouteSharingPolicy:
+          AVAudioSessionRouteSharingPolicy.defaultPolicy,
       avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
       androidAudioAttributes: AndroidAudioAttributes(
         contentType: AndroidAudioContentType.speech,
@@ -172,7 +174,8 @@ class AudioProcessingService {
 
   Future<void> _importAudio(ProcessingTask task) async {
     final file = File(task.inputPath);
-    final fileName = 'audio_${DateTime.now().millisecondsSinceEpoch}${path.extension(task.inputPath)}';
+    final fileName =
+        'audio_${DateTime.now().millisecondsSinceEpoch}${path.extension(task.inputPath)}';
     final storagePath = 'audio/$fileName';
 
     await _supabase.storage.from('cookcut-media').upload(
@@ -199,19 +202,52 @@ class AudioProcessingService {
 
   Future<void> _mixAudio(ProcessingTask task) async {
     final tracks = task.additionalParams!['tracks'] as List<AudioTrack>;
-    
-    // Call OpenShot API for audio mixing
+
+    // Validate audio download permissions and format for Jamendo tracks
+    for (final track in tracks) {
+      if (track.path.contains('jamendo.com')) {
+        final trackId = _extractJamendoTrackId(track.path);
+        final response = await _supabase.functions.invoke(
+          'check-jamendo-track',
+          body: {
+            'trackId': trackId,
+            'format': 'mp32', // Use high quality format for mixing
+          },
+        );
+
+        if (response.status != 200) {
+          throw Exception(
+              'Failed to validate Jamendo track: ${response.data['message']}');
+        }
+
+        final data = response.data as Map<String, dynamic>;
+        if (data['audiodownload_allowed'] != true) {
+          throw Exception('Audio download not allowed for track: $trackId');
+        }
+
+        // Update track path to use the correct audio format URL
+        final audioUrl = data['audiodownload'] as String;
+        if (audioUrl.isEmpty) {
+          throw Exception(
+              'Audio download URL not available for track: $trackId');
+        }
+      }
+    }
+
+    // Call OpenShot API for audio mixing with validated tracks
     final response = await _supabase.functions.invoke(
       'mix-audio',
       body: {
-        'tracks': tracks.map((track) => {
-          'path': track.path,
-          'volume': track.volume,
-          'startTime': track.startTime.inMilliseconds,
-          'endTime': track.endTime?.inMilliseconds,
-          'fadeIn': track.fadeInDuration.inMilliseconds,
-          'fadeOut': track.fadeOutDuration.inMilliseconds,
-        }).toList(),
+        'tracks': tracks
+            .map((track) => {
+                  'path': track.path,
+                  'volume': track.volume,
+                  'startTime': track.startTime.inMilliseconds,
+                  'endTime': track.endTime?.inMilliseconds,
+                  'fadeIn': track.fadeInDuration.inMilliseconds,
+                  'fadeOut': track.fadeOutDuration.inMilliseconds,
+                })
+            .toList(),
       },
     );
 
@@ -220,9 +256,41 @@ class AudioProcessingService {
     }
   }
 
+  String _extractJamendoTrackId(String url) {
+    final uri = Uri.parse(url);
+    final trackId = uri.queryParameters['trackid'] ??
+        uri.pathSegments.lastWhere(
+          (segment) => int.tryParse(segment) != null,
+          orElse: () => '',
+        );
+    if (trackId.isEmpty) {
+      throw Exception('Invalid Jamendo track URL: $url');
+    }
+    return trackId;
+  }
+
   Future<void> _applyFade(ProcessingTask task) async {
     final fadeIn = task.additionalParams!['fadeIn'] as Duration;
     final fadeOut = task.additionalParams!['fadeOut'] as Duration;
+
+    // Validate if the audio is from Jamendo before applying fade
+    if (task.inputPath.contains('jamendo.com')) {
+      final trackId = _extractJamendoTrackId(task.inputPath);
+      final response = await _supabase.functions.invoke(
+        'check-jamendo-track',
+        body: {
+          'trackId': trackId,
+          'format': 'mp32',
+        },
+      );
+
+      if (response.status != 200 ||
+          response.data['audiodownload_allowed'] != true ||
+          (response.data['audiodownload'] as String).isEmpty) {
+        throw Exception(
+            'Cannot apply fade: Jamendo track not available or download not allowed');
+      }
+    }
 
     final response = await _supabase.functions.invoke(
       'apply-fade',
@@ -241,7 +309,7 @@ class AudioProcessingService {
   Future<void> _trimAudio(ProcessingTask task) async {
     final start = Duration(milliseconds: task.additionalParams!['start']);
     final end = Duration(milliseconds: task.additionalParams!['end']);
-    
+
     final response = await _supabase.functions.invoke(
       'trim-audio',
       body: {
@@ -258,18 +326,21 @@ class AudioProcessingService {
 
   Future<String?> startVoiceOverRecording() async {
     try {
-      if (!await _recorder.hasPermission()) {
+      if (!await _recorder.hasPermission) {
         throw Exception('Microphone permission not granted');
       }
 
       final directory = await getTemporaryDirectory();
-      final filePath = '${directory.path}/voiceover_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final filePath =
+          '${directory.path}/voiceover_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
       await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 128000,
+          sampleRate: 44100,
+        ),
         path: filePath,
-        encoder: AudioEncoder.aacLc,
-        bitRate: 128000,
-        samplingRate: 44100,
       );
 
       return filePath;
@@ -335,7 +406,7 @@ class AudioProcessingService {
     try {
       _playerController?.dispose();
       _playerController = PlayerController();
-      
+
       final file = File(audioPath);
       if (!await file.exists()) {
         throw Exception('Audio file not found');
@@ -344,9 +415,12 @@ class AudioProcessingService {
       await _playerController!.preparePlayer(
         path: audioPath,
         noOfSamples: 100,
+        waveForms: true,
       );
 
-      return await _playerController!.extractWaveformData();
+      final waveformData = await _playerController!.extractWaveformData();
+      // Convert double values to integers by scaling
+      return waveformData.map((value) => (value * 100).toInt()).toList();
     } catch (e) {
       print('Error generating waveform: $e');
       return [];

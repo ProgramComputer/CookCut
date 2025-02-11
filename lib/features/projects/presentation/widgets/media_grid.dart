@@ -5,16 +5,21 @@ import '../bloc/media_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'video_preview.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../pages/video_editor_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../data/repositories/video_overlay_repository_impl.dart';
+import 'package:provider/provider.dart';
 
 class MediaGrid extends StatelessWidget {
   final List<MediaAsset> assets;
-  final VoidCallback? onRefresh;
+  final Future<void> Function() onRefresh;
 
   const MediaGrid({
-    super.key,
+    Key? key,
     required this.assets,
-    this.onRefresh,
-  });
+    required this.onRefresh,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +60,32 @@ class MediaGrid extends StatelessWidget {
             delegate: SliverChildBuilderDelegate(
               (context, index) {
                 final asset = assets[index];
-                return _MediaTile(asset: asset);
+                return GestureDetector(
+                  onTap: () {
+                    if (asset.type == MediaType.rawFootage ||
+                        asset.type == MediaType.editedClip) {
+                      showDialog(
+                        context: context,
+                        useSafeArea: true,
+                        barrierDismissible: true,
+                        builder: (context) => Dialog.fullscreen(
+                          child: Provider(
+                            create: (context) => VideoOverlayRepositoryImpl(
+                              firestore: FirebaseFirestore.instance,
+                              auth: FirebaseAuth.instance,
+                            ),
+                            child: VideoEditorPage(
+                              videoUrl: asset.fileUrl,
+                              projectId: asset.projectId,
+                              startInPreviewMode: true,
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  child: _MediaTile(asset: asset),
+                );
               },
               childCount: assets.length,
             ),
@@ -109,89 +139,83 @@ class _MediaTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () {
-          showDialog(
-            context: context,
-            builder: (context) => Dialog(
-              backgroundColor: Colors.transparent,
-              insetPadding: EdgeInsets.zero,
-              child: VideoPreview(mediaAsset: asset),
-            ),
-          );
-        },
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: asset.thumbnailUrl != null
-                  ? Image.network(
-                      asset.thumbnailUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
-                          child: Icon(
-                            Icons.movie,
-                            size: 48,
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                        );
-                      },
-                    )
-                  : Container(
-                      color:
-                          Theme.of(context).colorScheme.surfaceContainerHighest,
-                      child: Icon(
-                        Icons.movie,
-                        size: 48,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton.filledTonal(
-                onPressed: () => _handleDelete(context),
-                icon: const Icon(Icons.delete_outline),
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.black45,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.7),
-                    ],
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (asset.thumbnailUrl != null)
+            Image.network(
+              asset.thumbnailUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: Icon(
+                    Icons.movie,
+                    size: 48,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
-                ),
-                padding: const EdgeInsets.all(8.0),
-                child: Text(
-                  asset.fileName,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(color: Colors.white),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                );
+              },
+            )
+          else
+            Container(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Icon(
+                Icons.movie,
+                size: 48,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
-          ],
-        ),
+          if (asset.type == MediaType.rawFootage ||
+              asset.type == MediaType.editedClip)
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: Icon(
+                Icons.play_circle_fill,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: IconButton.filledTonal(
+              onPressed: () => _handleDelete(context),
+              icon: const Icon(Icons.delete_outline),
+              style: IconButton.styleFrom(
+                backgroundColor: Colors.black45,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.7),
+                  ],
+                ),
+              ),
+              padding: const EdgeInsets.all(8.0),
+              child: Text(
+                asset.fileName,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleSmall
+                    ?.copyWith(color: Colors.white),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

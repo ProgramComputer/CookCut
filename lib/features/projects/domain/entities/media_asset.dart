@@ -13,6 +13,8 @@ class MediaAsset extends Equatable {
   final Duration? duration;
   final DateTime uploadedAt;
   final Map<String, dynamic> metadata;
+  final int position;
+  final int? layer;
 
   const MediaAsset({
     required this.id,
@@ -22,6 +24,8 @@ class MediaAsset extends Equatable {
     required this.fileName,
     required this.fileSize,
     required this.uploadedAt,
+    required this.position,
+    this.layer,
     this.thumbnailUrl,
     this.duration,
     this.metadata = const {},
@@ -39,6 +43,8 @@ class MediaAsset extends Equatable {
         duration,
         uploadedAt,
         metadata,
+        position,
+        layer,
       ];
 
   String get formattedFileSize {

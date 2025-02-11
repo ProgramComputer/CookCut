@@ -62,7 +62,9 @@ class _LoginPageState extends State<LoginPage> {
 
   String get logoAsset {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return isDark ? 'assets/icon/logo_dark.svg' : 'assets/icon/logo.svg';
+    return isDark
+        ? 'assets/icon/logo_dark_fixed.svg'
+        : 'assets/icon/logo_fixed.svg';
   }
 
   @override
@@ -106,11 +108,15 @@ class _LoginPageState extends State<LoginPage> {
                   tag: 'app_logo',
                   child: Container(
                     padding: const EdgeInsets.all(16),
-                    child: SvgPicture.asset(
-                      logoAsset,
+                    child: SizedBox(
                       width: 100,
                       height: 100,
-                      fit: BoxFit.contain,
+                      child: SvgPicture.asset(
+                        logoAsset,
+                        width: 100,
+                        height: 100,
+                        fit: BoxFit.contain,
+                      ),
                     ),
                   ),
                 ),
@@ -231,10 +237,15 @@ class _LoginPageState extends State<LoginPage> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        SvgPicture.asset(
-                          'assets/icon/google_logo.svg',
+                        SizedBox(
                           width: 24,
                           height: 24,
+                          child: SvgPicture.asset(
+                            'assets/icon/google_logo.svg',
+                            width: 24,
+                            height: 24,
+                            fit: BoxFit.contain,
+                          ),
                         ),
                         const SizedBox(width: AppTheme.spaceSM),
                         Text(
