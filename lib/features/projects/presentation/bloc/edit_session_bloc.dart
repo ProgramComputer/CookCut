@@ -227,6 +227,15 @@ class EditSessionBloc extends Bloc<EditSessionEvent, EditSessionState> {
         _keepAliveTimer?.cancel();
         _keepAliveTimer = null;
 
+        // Cancel and restart the session subscription to force a refresh
+        _sessionSubscription?.cancel();
+        _sessionSubscription = _editSessionRepository
+            .watchCurrentSession(state.currentSession!.projectId)
+            .listen(
+              (session) => add(_UpdateSession(session)),
+              onError: (error) => add(_SessionError(error.toString())),
+            );
+
         emit(state.copyWith(
           status: EditSessionStatus.success,
           currentSession: null,

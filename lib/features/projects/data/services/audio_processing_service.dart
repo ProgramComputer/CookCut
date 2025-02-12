@@ -143,7 +143,8 @@ class AudioProcessingService {
     });
   }
 
-  Future<String?> importAudio(String audioPath) async {
+  Future<String?> importAudio(String audioPath,
+      {required String projectId}) async {
     try {
       final file = File(audioPath);
       if (!await file.exists()) {
@@ -160,12 +161,13 @@ class AudioProcessingService {
         type: AudioProcessingType.import,
         inputPath: audioPath,
         completer: completer,
+        additionalParams: {'projectId': projectId},
       );
 
       _processingQueue.add(task);
       await completer.future;
 
-      return await _getProcessedAudioUrl(audioPath);
+      return await _getProcessedAudioUrl(audioPath, projectId);
     } catch (e) {
       print('Error importing audio: $e');
       return null;
@@ -173,10 +175,15 @@ class AudioProcessingService {
   }
 
   Future<void> _importAudio(ProcessingTask task) async {
+    if (task.additionalParams == null ||
+        task.additionalParams!['projectId'] == null) {
+      throw Exception('Project ID is required for importing audio');
+    }
+    final projectId = task.additionalParams!['projectId'] as String;
     final file = File(task.inputPath);
     final fileName =
-        'audio_${DateTime.now().millisecondsSinceEpoch}${path.extension(task.inputPath)}';
-    final storagePath = 'audio/$fileName';
+        '${DateTime.now().millisecondsSinceEpoch}_${path.basename(task.inputPath)}';
+    final storagePath = 'media/$projectId/audio/$fileName';
 
     await _supabase.storage.from('cookcut-media').upload(
           storagePath,
@@ -326,7 +333,8 @@ class AudioProcessingService {
 
   Future<String?> startVoiceOverRecording() async {
     try {
-      if (!await _recorder.hasPermission) {
+      final hasPermission = await _recorder.hasPermission();
+      if (!hasPermission) {
         throw Exception('Microphone permission not granted');
       }
 
@@ -391,10 +399,12 @@ class AudioProcessingService {
     }
   }
 
-  Future<String?> _getProcessedAudioUrl(String originalPath) async {
+  Future<String?> _getProcessedAudioUrl(
+      String originalPath, String projectId) async {
     try {
-      final fileName = 'processed_${path.basename(originalPath)}';
-      final storagePath = 'processed/audio/$fileName';
+      final fileName =
+          '${DateTime.now().millisecondsSinceEpoch}_${path.basename(originalPath)}';
+      final storagePath = 'media/$projectId/processed/audio/$fileName';
       return _supabase.storage.from('cookcut-media').getPublicUrl(storagePath);
     } catch (e) {
       print('Error getting processed audio URL: $e');
@@ -415,10 +425,12 @@ class AudioProcessingService {
       await _playerController!.preparePlayer(
         path: audioPath,
         noOfSamples: 100,
-        waveForms: true,
       );
 
-      final waveformData = await _playerController!.extractWaveformData();
+      final waveformData = await _playerController!.extractWaveformData(
+        path: audioPath,
+      );
+
       // Convert double values to integers by scaling
       return waveformData.map((value) => (value * 100).toInt()).toList();
     } catch (e) {

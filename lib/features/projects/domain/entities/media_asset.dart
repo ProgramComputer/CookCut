@@ -1,6 +1,10 @@
 import 'package:equatable/equatable.dart';
 
-enum MediaType { rawFootage, editedClip, audio }
+enum MediaType {
+  rawFootage,  // For original uploaded videos
+  editedClip,  // For processed/edited videos
+  audio        // For audio files
+}
 
 class MediaAsset extends Equatable {
   final String id;

@@ -7,6 +7,7 @@ import 'dart:developer' as developer;
 import '../bloc/media_bloc.dart';
 import '../../domain/entities/media_asset.dart';
 import 'package:image_picker/image_picker.dart';
+import 'audio_recording_dialog.dart';
 
 class MediaImportWidget extends StatefulWidget {
   final String projectId;
@@ -126,24 +127,20 @@ class _MediaImportWidgetState extends State<MediaImportWidget> {
     try {
       setState(() => _isLoading = true);
 
-      // TODO: Implement audio recording
-      // For now, show a dialog explaining the limitation
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Audio Recording'),
-            content: const Text(
-                'Audio recording will be available in the next update. For now, you can import existing audio files.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AudioRecordingDialog(
+          onRecordingComplete: (String filePath) async {
+            final file = File(filePath);
+            if (await file.exists()) {
+              await _validateAndProcessFile(file);
+            }
+          },
+        ),
+      );
     } catch (e) {
       developer.log(
         'Error recording audio: $e',

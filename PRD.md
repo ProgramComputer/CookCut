@@ -48,9 +48,20 @@ CookCut is a video editing Android app tailored for cooking creators, enabling t
 *Storage Architecture*
 
 1. **Supabase Storage**
-   - Raw video files
-   - Processed video files
-   - Thumbnails and previews
+   - Bucket: `cookcut-media`
+   - Structure:
+     ```
+     cookcut-media/
+     ├── <project-id>/
+     │   └── media/
+     │       ├── thumbnails/    # Video thumbnails and previews
+     │       ├── raws/          # Original uploaded videos
+     │       └── processed/     # Processed/compressed videos
+     ```
+   - Access Control:
+     - Public read access for processed videos
+     - Private access for raw uploads
+     - Thumbnails cached at CDN level
 
 2. **Firestore**
    - User data

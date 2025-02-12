@@ -10,6 +10,23 @@ import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/projects/domain/entities/project.dart';
 import '../../features/splash/presentation/pages/splash_screen.dart';
 
+// Custom serialization for Project type
+class ProjectSerializer {
+  static String encode(Project project) {
+    return Uri.encodeComponent(project.id);
+  }
+
+  static Project? decode(String value) {
+    try {
+      final id = Uri.decodeComponent(value);
+      return Project(id: id);
+    } catch (e) {
+      debugPrint('Error decoding project: $e');
+      return null;
+    }
+  }
+}
+
 final router = GoRouter(
   initialLocation: '/splash',
   debugLogDiagnostics: true, // Enable debug logging

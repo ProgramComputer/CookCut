@@ -3,6 +3,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:video_compress/video_compress.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'firebase_options.dart';
 import 'core/config/router_config.dart';
 import 'core/theme/app_theme.dart';
@@ -11,9 +13,24 @@ import 'features/auth/domain/repositories/auth_repository.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_event.dart';
 import 'features/splash/presentation/pages/splash_screen.dart';
+import 'features/projects/presentation/widgets/background_music_browser.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Clear all caches on startup
+  try {
+    // Clear video compression cache
+    await VideoCompress.deleteAllCache();
+
+    // Clear all cache managers
+    await DefaultCacheManager().emptyCache();
+    await JamendoCacheManager.instance.emptyCache();
+
+    debugPrint('Successfully cleared all caches');
+  } catch (e) {
+    debugPrint('Error clearing caches: $e');
+  }
 
   // Load environment variables
   await dotenv.load();
@@ -81,7 +98,7 @@ class PlatformApp extends StatelessWidget {
     return MaterialApp.router(
       title: 'CookCut',
       theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.light,
       routerConfig: router,
       builder: (context, child) {
         // Wrap the app with a platform-aware styling context

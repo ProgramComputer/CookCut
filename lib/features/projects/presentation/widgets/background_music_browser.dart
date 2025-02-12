@@ -4,6 +4,7 @@ import 'package:audio_session/audio_session.dart';
 import '../../data/services/jamendo_service.dart';
 import 'audio_waveform.dart';
 import 'dart:async';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 class BackgroundMusicBrowser extends StatefulWidget {
   final Function(String path) onMusicSelected;
@@ -33,6 +34,8 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
   bool _isPlaybackLoading = false;
   int? _loadingIndex;
   Map<int, double> _loadingProgress = {}; // Track progress per index
+  final Map<String, FileInfo?> _cachedThumbnails = {};
+  final Map<String, FileInfo?> _cachedPreviews = {};
 
   // Debouncer for search
   Timer? _searchDebouncer;
@@ -52,8 +55,8 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
   @override
   void initState() {
     super.initState();
-    _initAudioPlayer();
-    _searchMusic('');
+    _initAudio();
+    _loadInitialMusic();
   }
 
   @override
@@ -65,7 +68,7 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
     super.dispose();
   }
 
-  Future<void> _initAudioPlayer() async {
+  Future<void> _initAudio() async {
     try {
       _audioPlayer = AudioPlayer();
       final session = await AudioSession.instance;
@@ -74,12 +77,42 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
         avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.duckOthers,
         avAudioSessionMode: AVAudioSessionMode.defaultMode,
       ));
-      setState(() => _isAudioInitialized = true);
+      setState(() {
+        _isAudioInitialized = true;
+      });
     } catch (e) {
       setState(() {
-        _error = 'Failed to initialize audio player: $e';
-        _isAudioInitialized = false;
+        _error = 'Error initializing audio: $e';
       });
+    }
+  }
+
+  Future<void> _loadInitialMusic() async {
+    await _searchMusic('');
+  }
+
+  Future<FileInfo?> _getCachedFile(String url, bool isPreview) async {
+    final cache = isPreview ? _cachedPreviews : _cachedThumbnails;
+    if (cache.containsKey(url)) {
+      return cache[url];
+    }
+
+    try {
+      final fileInfo = await JamendoCacheManager.instance.getFileFromCache(url);
+      if (fileInfo != null) {
+        cache[url] = fileInfo;
+        return fileInfo;
+      }
+
+      final downloadedFile = await JamendoCacheManager.instance.downloadFile(
+        url,
+        key: url,
+      );
+      cache[url] = downloadedFile;
+      return downloadedFile;
+    } catch (e) {
+      print('Error caching file $url: $e');
+      return null;
     }
   }
 
@@ -119,61 +152,42 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
   }
 
   Future<void> _playPreview(int index) async {
-    if (!_isAudioInitialized || _isPlaybackLoading) {
-      return;
-    }
+    if (_isPlaybackLoading || _loadingIndex != null) return;
 
-    if (_playingIndex == index) {
-      await _audioPlayer.stop();
-      setState(() => _playingIndex = null);
-      return;
-    }
-
+    final music = _musicList[index];
     setState(() {
-      _isPlaybackLoading = true;
       _loadingIndex = index;
+      _loadingProgress[index] = 0;
     });
 
     try {
-      final music = _musicList[index];
-
-      // Stop current playback
-      await _audioPlayer.stop();
-
-      // Get cached or download URL
-      final audioUrl = await _jamendoService.downloadMusic(music.audioUrl);
+      // Try to get cached preview
+      final cachedPreview = await _getCachedFile(music.previewUrl, true);
+      if (cachedPreview != null) {
+        await _audioPlayer.setFilePath(cachedPreview.file.path);
+      } else {
+        await _audioPlayer.setUrl(
+          music.previewUrl,
+          preload: true,
+        );
+      }
 
       if (!mounted) return;
 
-      // Set the audio source and start playback
-      await _audioPlayer.setUrl(audioUrl);
-      await _audioPlayer.play();
-
       setState(() {
         _playingIndex = index;
-        _isPlaybackLoading = false;
         _loadingIndex = null;
+        _loadingProgress.remove(index);
       });
 
-      // Add completion listener
-      _audioPlayer.playerStateStream.listen((state) {
-        if (state.processingState == ProcessingState.completed && mounted) {
-          setState(() => _playingIndex = null);
-        }
-      });
+      await _audioPlayer.play();
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isPlaybackLoading = false;
-          _loadingIndex = null;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error playing preview: ${e.toString()}'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
+      if (!mounted) return;
+      setState(() {
+        _loadingIndex = null;
+        _loadingProgress.remove(index);
+        _error = 'Error playing preview: $e';
+      });
     }
   }
 
@@ -266,7 +280,7 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
             ElevatedButton(
               onPressed: () {
                 setState(() => _error = null);
-                _initAudioPlayer();
+                _initAudio();
               },
               child: const Text('Retry'),
             ),
@@ -287,33 +301,70 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
         final music = _musicList[index];
         final isPlaying = _playingIndex == index;
         final isLoading = _loadingIndex == index;
+        final progress = _loadingProgress[index] ?? 0;
 
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
-            title: Text(music.name),
-            subtitle: Text(music.artist),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(music.duration),
-                const SizedBox(width: 8),
-                if (isLoading)
-                  SizedBox(
+            leading: SizedBox(
+              width: 56,
+              height: 56,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: FutureBuilder<FileInfo?>(
+                  future: _getCachedFile(music.thumbnailUrl, false),
+                  builder: (context, snapshot) {
+                    final hasImage = snapshot.hasData && snapshot.data != null;
+
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: hasImage
+                          ? Image.file(
+                              snapshot.data!.file,
+                              fit: BoxFit.cover,
+                            )
+                          : Container(
+                              color: Colors.grey[800],
+                              child: const Icon(Icons.music_note,
+                                  color: Colors.white54),
+                            ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            title: Text(
+              music.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              music.artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: isLoading
+                ? SizedBox(
                     width: 24,
                     height: 24,
                     child: CircularProgressIndicator(
+                      value: progress > 0 ? progress : null,
                       strokeWidth: 2,
-                      value: _loadingProgress[index] ?? 0.0,
                     ),
                   )
-                else
-                  IconButton(
-                    icon: Icon(isPlaying ? Icons.stop : Icons.play_arrow),
-                    onPressed: () => _playPreview(index),
+                : IconButton(
+                    icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                    onPressed: () {
+                      if (isPlaying) {
+                        _audioPlayer.pause();
+                        setState(() {
+                          _playingIndex = null;
+                        });
+                      } else {
+                        _playPreview(index);
+                      }
+                    },
                   ),
-              ],
-            ),
             onTap: () async {
               if (_isPlaybackLoading) {
                 print('Ignoring tap - already loading');
@@ -384,4 +435,16 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
       ],
     );
   }
+}
+
+class JamendoCacheManager {
+  static const key = 'jamendoCache';
+  static CacheManager instance = CacheManager(
+    Config(
+      key,
+      stalePeriod: const Duration(days: 7),
+      maxNrOfCacheObjects: 100,
+      fileService: HttpFileService(),
+    ),
+  );
 }

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:video_player/video_player.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -14,6 +13,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'ffmpeg_service.dart';
+import 'package:flutter/material.dart';
+import 'package:cached_video_player_plus/cached_video_player_plus.dart';
 
 enum ProcessingType { generateThumbnail, compressVideo, transcodeVideo }
 
@@ -34,16 +35,62 @@ class ProcessingTask {
 }
 
 class MediaProcessingService {
-  final FirebaseAuth _auth;
-  final SupabaseClient _supabase;
-  final FFmpegService _ffmpegService;
+  final String baseUrl;
+  final http.Client _client;
+  final SupabaseClient supabase;
 
   MediaProcessingService({
-    FirebaseAuth? auth,
-    SupabaseClient? supabase,
-  })  : _auth = auth ?? FirebaseAuth.instance,
-        _supabase = supabase ?? Supabase.instance.client,
-        _ffmpegService = FFmpegService();
+    String? baseUrl,
+    http.Client? client,
+    required this.supabase,
+  })  : baseUrl = baseUrl ??
+            dotenv.env['MEDIA_PROCESSING_URL'] ??
+            'http://localhost:3000',
+        _client = client ?? http.Client();
+
+  Future<Map<String, dynamic>> processVideo({
+    required String videoUrl,
+    required String projectId,
+    required int position,
+    int layer = 0,
+  }) async {
+    try {
+      // Initialize video player to get metadata
+      final controller = CachedVideoPlayerPlusController.networkUrl(
+        Uri.parse(videoUrl),
+      );
+      await controller.initialize();
+
+      final duration = controller.value.duration;
+      final size = controller.value.size;
+
+      // Clean up controller
+      await controller.dispose();
+
+      // Make API request to process video
+      final response = await _client.post(
+        Uri.parse('$baseUrl/process'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'videoUrl': videoUrl,
+          'projectId': projectId,
+          'position': position,
+          'layer': layer,
+          'duration': duration.inMilliseconds,
+          'width': size.width,
+          'height': size.height,
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to process video: ${response.statusCode}');
+      }
+
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (e) {
+      throw Exception('Error processing video: ${e.toString()}');
+    }
+  }
 
   Future<String?> generateThumbnail(String videoPath,
       {required String projectId}) async {
@@ -53,70 +100,52 @@ class MediaProcessingService {
         throw Exception('Video file not found: $videoPath');
       }
 
-      // Generate thumbnail using video_thumbnail package
+      // Generate thumbnail using video_thumbnail package with optimized settings
       final thumbnailPath = await VideoThumbnail.thumbnailFile(
         video: videoPath,
         thumbnailPath: (await getTemporaryDirectory()).path,
         imageFormat: ImageFormat.JPEG,
-        quality: 75,
+        maxHeight: 720, // Limit thumbnail height
+        quality: 85, // Good quality but not too large
       );
 
       if (thumbnailPath == null) {
         throw Exception('Failed to generate thumbnail');
       }
 
-      // Upload thumbnail to Supabase
-      final fileName = '${path.basenameWithoutExtension(videoPath)}_thumb.jpg';
-      final storagePath = 'projects/$projectId/media/thumbnails/$fileName';
+      // Upload thumbnail directly to Supabase storage
+      final fileName =
+          '${DateTime.now().millisecondsSinceEpoch}_${path.basename(videoPath)}_thumb.jpg';
+      final storagePath = 'media/$projectId/thumbnails/$fileName';
 
-      await _supabase.storage.from('cookcut-media').upload(
+      await supabase.storage.from('cookcut-media').upload(
             storagePath,
             File(thumbnailPath),
-            fileOptions: FileOptions(
+            fileOptions: const FileOptions(
               contentType: 'image/jpeg',
               upsert: true,
             ),
           );
 
-      return _supabase.storage.from('cookcut-media').getPublicUrl(storagePath);
+      // Get the public URL for the thumbnail
+      final thumbnailUrl =
+          supabase.storage.from('cookcut-media').getPublicUrl(storagePath);
+
+      // Clean up the temporary file
+      try {
+        await File(thumbnailPath).delete();
+      } catch (e) {
+        print('Warning: Failed to delete temporary thumbnail file: $e');
+      }
+
+      return thumbnailUrl;
     } catch (e) {
       print('Error generating thumbnail: $e');
       return null;
     }
   }
 
-  Future<String?> compressVideo(String videoPath, VideoQuality quality,
-      {required String projectId}) async {
-    try {
-      // Build FFmpeg command for compression
-      final command = _buildCompressionCommand(quality);
-
-      final result = await _ffmpegService.exportVideoWithOverlays(
-        videoUrl: videoPath,
-        textOverlays: [],
-        timerOverlays: [],
-        recipeOverlays: [],
-        aspectRatio: 16 / 9, // Default aspect ratio
-        projectId: projectId,
-      );
-
-      return result['url'];
-    } catch (e) {
-      print('Error compressing video: $e');
-      return null;
-    }
-  }
-
-  String _buildCompressionCommand(VideoQuality quality) {
-    switch (quality) {
-      case VideoQuality.low:
-        return '-c:v libx264 -crf 28 -preset medium -c:a aac -b:a 128k';
-      case VideoQuality.medium:
-        return '-c:v libx264 -crf 23 -preset medium -c:a aac -b:a 192k';
-      case VideoQuality.high:
-        return '-c:v libx264 -crf 18 -preset medium -c:a aac -b:a 256k';
-      default:
-        return '-c:v libx264 -crf 23 -preset medium -c:a aac -b:a 192k';
-    }
+  void dispose() {
+    _client.close();
   }
 }

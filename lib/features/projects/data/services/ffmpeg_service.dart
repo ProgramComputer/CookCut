@@ -35,7 +35,7 @@ class FFmpegService {
     return url.trim();
   }
 
-  Map<String, String> get _headers => {
+  Map<String, String> get headers => {
         'Content-Type': 'application/json',
         'Connection': 'keep-alive',
         'Accept': '*/*',
@@ -44,77 +44,58 @@ class FFmpegService {
 
   Future<Map<String, dynamic>> trimVideo({
     required String videoUrl,
+    required String projectId,
     required Duration startTime,
     required Duration endTime,
-    required String projectId,
     required int position,
     required int layer,
   }) async {
     try {
-      print('Starting video trim process');
-      print('FFmpeg server base URL: $_baseUrl');
-
-      final startSeconds = startTime.inMilliseconds / 1000.0;
-      final endSeconds = endTime.inMilliseconds / 1000.0;
-      final duration = endSeconds - startSeconds;
-
-      final command =
-          'ffmpeg -i input.mp4 -ss $startSeconds -t $duration -c copy output.mp4';
-
-      final processResult =
-          await _processVideoUrl(videoUrl, command, projectId);
-      final jobId = processResult['jobId'];
-
-      // Listen to job status updates
-      final jobCompleter = Completer<Map<String, dynamic>>();
-      late final StreamSubscription<List<Map<String, dynamic>>> subscription;
-
-      subscription = _supabase
-          .from('video_jobs')
-          .stream(primaryKey: ['id'])
-          .eq('id', jobId)
-          .listen((List<Map<String, dynamic>> jobs) async {
-            if (jobs.isEmpty) return;
-
-            final job = jobs.first;
-            print('Job status update: ${job['status']}');
-
-            try {
-              if (job['status'] == 'complete') {
-                // Create clip in Firestore only after successful processing
-                await _createClip(
-                  projectId: projectId,
-                  originalFileUrl: videoUrl,
-                  processedFileUrl: job['output_url'],
-                  startTime: startSeconds,
-                  endTime: endSeconds,
-                  position: position,
-                  layer: layer,
-                );
-                jobCompleter.complete(job);
-              } else if (job['status'] == 'failed') {
-                throw Exception(job['error'] ?? 'Processing failed');
-              }
-            } catch (e) {
-              jobCompleter.completeError(e);
-            } finally {
-              subscription.cancel();
-            }
-          });
-
-      // Wait for job completion or failure
-      try {
-        final result = await jobCompleter.future;
-        return result;
-      } catch (e) {
-        print('Job failed: $e');
-        subscription.cancel();
-        rethrow;
+      if (_apiKey.isEmpty) {
+        throw Exception('FFmpeg API key not configured');
       }
-    } catch (e, stackTrace) {
-      print('Error in FFmpeg service: $e');
-      print('Stack trace: $stackTrace');
-      rethrow;
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl/trim'),
+        headers: headers,
+        body: jsonEncode({
+          'videoUrl': videoUrl,
+          'projectId': projectId,
+          'startTime': startTime.inMilliseconds / 1000.0,
+          'endTime': endTime.inMilliseconds / 1000.0,
+          'position': position,
+          'layer': layer,
+        }),
+      );
+
+      if (response.statusCode == 401) {
+        throw Exception('Unauthorized: Invalid API key');
+      }
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to trim video: ${response.body}');
+      }
+    } catch (e) {
+      print('Error in trimVideo: $e');
+      throw Exception('Failed to trim video: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> checkJobStatus(String jobId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/progress/$jobId'),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to check job status: ${response.body}');
+      }
+    } catch (e) {
+      throw Exception('Failed to check job status: $e');
     }
   }
 
@@ -281,7 +262,7 @@ class FFmpegService {
         final response = await client
             .post(
           Uri.parse('$_baseUrl/process-url'),
-          headers: _headers,
+          headers: headers,
           body: jsonEncode({
             'videoUrl': videoUrl,
             'command': command,
@@ -333,7 +314,7 @@ class FFmpegService {
         final response = await client
             .get(
           Uri.parse('$_baseUrl/status/$jobId'),
-          headers: _headers,
+          headers: headers,
         )
             .timeout(
           const Duration(seconds: 5),

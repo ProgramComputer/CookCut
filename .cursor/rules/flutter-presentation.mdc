@@ -1,4 +1,8 @@
 ---
+description: 
+globs: 
+---
+---
 description: Ensure that Flutter presentation files adhere to Material 3 design guidelines, Laws of UX, and proper BLoC architecture. This rule covers UI components, page structures, state management, widget composition, and user experience principles.
 globs: lib/features/**/presentation/**/*.dart
 ---

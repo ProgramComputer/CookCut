@@ -9,12 +9,96 @@ const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
+const OpenAI = require('openai');
+const openai = new OpenAI();
+const os = require('os');
+const { OpenAI: LangChainOpenAI } = require('@langchain/openai');
+const { ChatOpenAI } = require('@langchain/openai');
+const { StringOutputParser } = require('langchain/schema/output_parser');
+const { RunnableSequence } = require('langchain/schema/runnable');
+const { LangChainTracer, ConsoleCallbackHandler } = require('langchain/callbacks');
+const { Client } = require('langsmith');
+const swaggerJsdoc = require('swagger-jsdoc');
+const swaggerUi = require('swagger-ui-express');
+
+// Add Swagger configuration
+const swaggerOptions = {
+  definition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'FFmpeg Server API',
+      version: '1.0.0',
+      description: 'API documentation for FFmpeg Server with video processing and recipe analysis capabilities',
+    },
+    servers: [
+      {
+        url: process.env.NODE_ENV === 'production' 
+          ? 'https://ec2-52-10-62-41.us-west-2.compute.amazonaws.com'
+          : 'http://localhost:3000',
+        description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
+      },
+    ],
+    components: {
+      securitySchemes: {
+        ApiKeyAuth: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'x-api-key',
+          description: 'API key for authentication',
+        },
+      },
+    },
+    security: [
+      {
+        ApiKeyAuth: [],
+      },
+    ],
+  },
+  apis: ['./src/server.js'], // Path to the API docs
+};
+
+const swaggerSpec = swaggerJsdoc(swaggerOptions);
 
 // Supabase client initialization
 const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_KEY
 );
+
+// Initialize LangChain tracing
+let tracer;
+if (process.env.LANGCHAIN_TRACING_V2 === 'true' && 
+    process.env.LANGCHAIN_ENDPOINT && 
+    process.env.LANGCHAIN_API_KEY &&
+    process.env.LANGCHAIN_PROJECT) {
+    console.log('Initializing LangChain tracing...');
+    const client = new Client({
+        apiUrl: process.env.LANGCHAIN_ENDPOINT,
+        apiKey: process.env.LANGCHAIN_API_KEY,
+    });
+    tracer = new LangChainTracer({
+        projectName: process.env.LANGCHAIN_PROJECT,
+        client
+    });
+    console.log('LangChain tracing initialized successfully');
+} else {
+    console.log('LangChain tracing disabled or missing configuration');
+    tracer = new ConsoleCallbackHandler();
+}
+
+// Initialize OpenAI models with tracing
+const visionModel = new ChatOpenAI({
+    modelName: "gpt-4-vision-preview",
+    maxTokens: 1000,
+    temperature: 0.2,
+    callbacks: [tracer]
+});
+
+const recipeModel = new ChatOpenAI({
+    modelName: "gpt-4-1106-preview",
+    temperature: 0.3,
+    callbacks: [tracer]
+});
 
 // Generate a secure API key if none is provided
 function generateSecureApiKey() {
@@ -181,7 +265,7 @@ async function uploadToSupabase(filePath, fileName, projectId) {
         const { data, error } = await supabase
             .storage
             .from('cookcut-media')
-            .upload(`${projectId}/media/edited/${fileName}`, fileBuffer, {
+            .upload(`media/${projectId}/processed/${fileName}`, fileBuffer, {
                 contentType: 'video/mp4',
                 upsert: true
             });
@@ -192,7 +276,7 @@ async function uploadToSupabase(filePath, fileName, projectId) {
         const { data: { publicUrl } } = supabase
             .storage
             .from('cookcut-media')
-            .getPublicUrl(`${projectId}/media/edited/${fileName}`);
+            .getPublicUrl(`media/${projectId}/processed/${fileName}`);
 
         return publicUrl;
     } catch (error) {
@@ -505,7 +589,443 @@ app.get('/output/:jobId', async (req, res) => {
     res.redirect(jobStatus.output_url);
 });
 
+// Add recipe analysis endpoint
+app.post('/analyze-recipe', async (req, res) => {
+  const { videoPath, projectId } = req.body;
+  
+  if (!videoPath || !projectId) {
+    console.error('Missing required parameters:', { videoPath, projectId });
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Missing videoPath or projectId' 
+    });
+  }
+
+  console.log('Starting recipe analysis for:', { videoPath, projectId });
+
+  // Create temporary directories with random names
+  const tempDir = path.join(os.tmpdir(), `recipe_${uuidv4()}`);
+  const framesDir = path.join(tempDir, 'frames');
+  const videoFile = path.join(tempDir, 'input.mp4');
+  
+  try {
+    // Create temporary directories
+    fs.mkdirSync(framesDir, { recursive: true });
+    console.log('Created temporary directories:', { tempDir, framesDir });
+
+    // Download video from Supabase
+    console.log('Downloading video from Supabase:', videoPath);
+    const { data: videoData, error: downloadError } = await supabase
+      .storage
+      .from('cookcut-media')
+      .download(`${projectId}/media/${videoPath}`);
+
+    if (downloadError) {
+      console.error('Error downloading video:', downloadError);
+      throw downloadError;
+    }
+
+    // Save video to temp file
+    fs.writeFileSync(videoFile, Buffer.from(await videoData.arrayBuffer()));
+    console.log('Video downloaded and saved to:', videoFile);
+
+    // Extract frames (1 frame per second)
+    console.log('Extracting frames from video...');
+    await new Promise((resolve, reject) => {
+      ffmpeg(videoFile)
+        .outputOptions([
+          '-vf', 'fps=1',  // 1 frame per second
+          '-frame_pts', '1' // Include presentation timestamp
+        ])
+        .output(`${framesDir}/frame_%d.jpg`)
+        .on('start', (command) => {
+          console.log('FFmpeg command:', command);
+        })
+        .on('progress', (progress) => {
+          console.log('Frame extraction progress:', progress);
+        })
+        .on('end', () => {
+          console.log('Frame extraction completed');
+          resolve();
+        })
+        .on('error', (err) => {
+          console.error('Frame extraction error:', err);
+          reject(err);
+        })
+        .run();
+    });
+
+    // Get video metadata
+    console.log('Getting video metadata...');
+    const metadata = await new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(videoFile, (err, metadata) => {
+        if (err) {
+          console.error('Metadata extraction error:', err);
+          reject(err);
+        } else {
+          console.log('Video metadata:', metadata.format);
+          resolve(metadata);
+        }
+      });
+    });
+
+    // Get all frames with their timestamps
+    const frames = fs.readdirSync(framesDir)
+      .filter(file => file.endsWith('.jpg'))
+      .map(file => ({
+        path: path.join(framesDir, file),
+        timestamp: parseInt(file.split('_')[1].split('.')[0])
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    console.log(`Found ${frames.length} frames to analyze`);
+
+    // Analyze frames in batches using LangChain
+    const batchSize = 4;
+    const frameBatches = chunks(frames, batchSize);
+    const analyses = [];
+
+    console.log(`Processing frames in ${frameBatches.length} batches of ${batchSize}`);
+
+    for (const [index, batch] of frameBatches.entries()) {
+      console.log(`Processing batch ${index + 1}/${frameBatches.length}`);
+      
+      const messages = [{
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `Analyze these ${batch.length} frames from a cooking video and for each frame:
+            1. Identify ingredients visible
+            2. Describe the cooking technique being used
+            3. Note any important measurements or timing
+            4. Identify any special equipment
+            
+            Format your response as a JSON array with timestamps.`
+          },
+          ...batch.map(frame => ({
+            type: "image_url",
+            image_url: `data:image/jpeg;base64,${fs.readFileSync(frame.path).toString('base64')}`
+          }))
+        ]
+      }];
+
+      const chain = RunnableSequence.from([
+        visionModel,
+        new StringOutputParser(),
+        (text) => JSON.parse(text)
+      ]);
+
+      const batchAnalysis = await chain.invoke(messages);
+      analyses.push(...batchAnalysis.frames);
+      console.log(`Completed batch ${index + 1} analysis`);
+    }
+
+    // Compile final recipe using LangChain
+    console.log('Compiling final recipe...');
+    const recipeChain = RunnableSequence.from([
+      recipeModel,
+      new StringOutputParser(),
+      (text) => JSON.parse(text)
+    ]);
+
+    const recipePrompt = [{
+      role: "system",
+      content: "You are a professional recipe writer. Create a well-structured recipe from the video analysis data."
+    }, {
+      role: "user",
+      content: `Create a detailed recipe from these timestamped cooking steps. Include:
+      1. Recipe title
+      2. Estimated time and difficulty
+      3. Ingredients list with measurements
+      4. Equipment needed
+      5. Step-by-step instructions with timestamps
+      6. Tips and variations
+      
+      Video metadata: ${JSON.stringify({
+        duration: metadata.format.duration,
+        filename: path.basename(videoPath)
+      })}
+      Frame analyses: ${JSON.stringify(analyses)}`
+    }];
+
+    const compiledRecipe = await recipeChain.invoke(recipePrompt);
+    console.log('Recipe compilation completed');
+
+    // Clean up all temporary files
+    console.log('Cleaning up temporary files...');
+    fs.rmSync(tempDir, { recursive: true, force: true });
+
+    // Return the analysis results
+    console.log('Analysis completed successfully');
+    res.json({
+      success: true,
+      recipe: compiledRecipe,
+      frameAnalyses: analyses
+    });
+
+  } catch (error) {
+    console.error('Fatal error during recipe analysis:', error);
+    
+    // Clean up on error
+    if (fs.existsSync(tempDir)) {
+      console.log('Cleaning up temporary directory after error');
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Add helper function for chunking arrays
+function chunks(array, size) {
+  const result = [];
+  for (let i = 0; i < array.length; i += size) {
+    result.push(array.slice(i, i + size));
+  }
+  return result;
+}
+
 const port = 3000;
 app.listen(port, () => {
     console.log(`FFmpeg server running on port ${port}`);
-}); 
+});
+
+// Add after app initialization but before routes
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+// Add before health check endpoint
+/**
+ * @swagger
+ * /health:
+ *   get:
+ *     summary: Check server health
+ *     description: Returns server health status
+ *     responses:
+ *       200:
+ *         description: Server is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ */
+
+// Add before analyze-recipe endpoint
+/**
+ * @swagger
+ * /analyze-recipe:
+ *   post:
+ *     summary: Analyze a cooking video and generate a recipe
+ *     description: Extracts frames from a video, analyzes them using AI, and generates a detailed recipe
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - videoPath
+ *               - projectId
+ *             properties:
+ *               videoPath:
+ *                 type: string
+ *                 description: Path to the video in Supabase storage
+ *               projectId:
+ *                 type: string
+ *                 description: Project ID for storage path
+ *     responses:
+ *       200:
+ *         description: Recipe analysis completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 recipe:
+ *                   type: object
+ *                   properties:
+ *                     title:
+ *                       type: string
+ *                     estimatedTime:
+ *                       type: object
+ *                       properties:
+ *                         prep:
+ *                           type: string
+ *                         cook:
+ *                           type: string
+ *                         total:
+ *                           type: string
+ *                     difficulty:
+ *                       type: string
+ *                     ingredients:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           item:
+ *                             type: string
+ *                           amount:
+ *                             type: string
+ *                           unit:
+ *                             type: string
+ *                           notes:
+ *                             type: string
+ *                     equipment:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     steps:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           number:
+ *                             type: integer
+ *                           instruction:
+ *                             type: string
+ *                           timestamp:
+ *                             type: integer
+ *                           technique:
+ *                             type: string
+ *                           tip:
+ *                             type: string
+ *                     tips:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     variations:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                 frameAnalyses:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       timestamp:
+ *                         type: integer
+ *                       ingredients:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                       technique:
+ *                         type: string
+ *                       measurements:
+ *                         type: string
+ *                       equipment:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *       400:
+ *         description: Missing required parameters
+ *       401:
+ *         description: Invalid or missing API key
+ *       500:
+ *         description: Server error
+ */
+
+// Add before upload-and-process endpoint
+/**
+ * @swagger
+ * /upload-and-process:
+ *   post:
+ *     summary: Upload and process a video
+ *     description: Upload a video file and process it using FFmpeg
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - video
+ *               - command
+ *             properties:
+ *               video:
+ *                 type: string
+ *                 format: binary
+ *                 description: Video file to process
+ *               command:
+ *                 type: string
+ *                 description: FFmpeg command to execute
+ *     responses:
+ *       200:
+ *         description: Processing started successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 jobId:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Invalid or missing API key
+ *       500:
+ *         description: Server error
+ */
+
+// Add before process-url endpoint
+/**
+ * @swagger
+ * /process-url:
+ *   post:
+ *     summary: Process a video from URL
+ *     description: Process a video from a given URL using FFmpeg
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - videoUrl
+ *               - command
+ *               - projectId
+ *             properties:
+ *               videoUrl:
+ *                 type: string
+ *                 description: URL of the video to process
+ *               command:
+ *                 type: string
+ *                 description: FFmpeg command to execute
+ *               projectId:
+ *                 type: string
+ *                 description: Project ID for storage
+ *     responses:
+ *       200:
+ *         description: Processing started successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 jobId:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Invalid or missing API key
+ *       500:
+ *         description: Server error
+ */ 

@@ -5,7 +5,6 @@ import '../bloc/media_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'video_preview.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../pages/video_editor_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../data/repositories/video_overlay_repository_impl.dart';
@@ -74,10 +73,8 @@ class MediaGrid extends StatelessWidget {
                               firestore: FirebaseFirestore.instance,
                               auth: FirebaseAuth.instance,
                             ),
-                            child: VideoEditorPage(
-                              videoUrl: asset.fileUrl,
-                              projectId: asset.projectId,
-                              startInPreviewMode: true,
+                            child: VideoPreview(
+                              mediaAsset: asset,
                             ),
                           ),
                         ),

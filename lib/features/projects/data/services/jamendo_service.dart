@@ -14,6 +14,8 @@ class JamendoMusic {
   final String waveformUrl;
   final bool isStreamable;
   final bool audiodownloadAllowed;
+  final String previewUrl;
+  final String thumbnailUrl;
 
   JamendoMusic({
     required this.id,
@@ -24,6 +26,8 @@ class JamendoMusic {
     required this.waveformUrl,
     required this.isStreamable,
     required this.audiodownloadAllowed,
+    required this.previewUrl,
+    required this.thumbnailUrl,
   });
 
   factory JamendoMusic.fromJson(Map<String, dynamic> json) {
@@ -35,10 +39,16 @@ class JamendoMusic {
 
     // Get the appropriate audio URL based on permissions
     String audioUrl = '';
+    String previewUrl = '';
 
     // First try the streaming URL
     if (json['audio'] != null && json['audio'].toString().isNotEmpty) {
       audioUrl = json['audio'].toString();
+      // Construct preview URL by adding preview parameter
+      final audioUri = Uri.parse(audioUrl);
+      final queryParams = Map<String, String>.from(audioUri.queryParameters);
+      queryParams['preview'] = '1';
+      previewUrl = audioUri.replace(queryParameters: queryParams).toString();
     }
 
     // If download is allowed, prefer the download URL
@@ -49,35 +59,32 @@ class JamendoMusic {
       }
     }
 
-    // Validate the URL
-    bool isStreamable = false;
-    try {
-      final uri = Uri.parse(audioUrl);
-      isStreamable = uri.isAbsolute &&
-          (uri.scheme == 'http' || uri.scheme == 'https') &&
-          audioUrl.isNotEmpty;
+    // Get thumbnail URL with default size if not specified
+    String thumbnailUrl = '';
+    if (json['image'] != null) {
+      thumbnailUrl = json['image'].toString();
+    } else if (json['album_image'] != null) {
+      thumbnailUrl = json['album_image'].toString();
+    }
 
-      // Add trackid parameter if missing
-      if (isStreamable && !audioUrl.contains('trackid=')) {
-        final trackId = json['id']?.toString() ?? '';
-        if (trackId.isNotEmpty) {
-          final separator = audioUrl.contains('?') ? '&' : '?';
-          audioUrl = '$audioUrl${separator}trackid=$trackId';
-        }
-      }
-    } catch (_) {
-      isStreamable = false;
+    // If no image URL is found, construct one using the track ID
+    if (thumbnailUrl.isEmpty && json['id'] != null) {
+      thumbnailUrl =
+          'https://usercontent.jamendo.com?type=album&id=${json['album_id']}&width=300&trackid=${json['id']}';
     }
 
     return JamendoMusic(
       id: json['id']?.toString() ?? '',
-      name: json['name']?.toString() ?? 'Unknown Track',
-      artist: json['artist_name']?.toString() ?? 'Unknown Artist',
-      duration: _formatDuration(durationInSeconds),
+      name: json['name']?.toString() ?? '',
+      artist: json['artist_name']?.toString() ?? '',
+      duration:
+          '${(durationInSeconds ~/ 60).toString().padLeft(2, '0')}:${(durationInSeconds % 60).toString().padLeft(2, '0')}',
       audioUrl: audioUrl,
       waveformUrl: json['waveform']?.toString() ?? '',
-      isStreamable: isStreamable,
+      isStreamable: json['streamable'] == true,
       audiodownloadAllowed: audiodownloadAllowed,
+      previewUrl: previewUrl,
+      thumbnailUrl: thumbnailUrl,
     );
   }
 

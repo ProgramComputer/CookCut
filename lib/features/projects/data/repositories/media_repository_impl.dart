@@ -3,7 +3,6 @@ import 'dart:ui' as ui;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:path/path.dart' as path;
 import 'package:mime/mime.dart';
-import 'package:video_player/video_player.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../domain/entities/media_asset.dart';
@@ -11,6 +10,9 @@ import '../../domain/repositories/media_repository.dart';
 import '../services/media_processing_service.dart';
 import '../../domain/entities/video_processing_config.dart';
 import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:cached_video_player_plus/cached_video_player_plus.dart';
+import 'package:dartz/dartz.dart';
 
 class MediaRepositoryImpl implements MediaRepository {
   final FirebaseFirestore _firestore;
@@ -37,7 +39,8 @@ class MediaRepositoryImpl implements MediaRepository {
     StreamController<double>? progressController,
   }) async {
     final file = File(filePath);
-    final fileName = path.basename(filePath);
+    final fileName =
+        '${DateTime.now().millisecondsSinceEpoch}_${path.basename(filePath)}';
     final mimeType = lookupMimeType(filePath);
     String? thumbnailUrl;
 
@@ -54,13 +57,12 @@ class MediaRepositoryImpl implements MediaRepository {
     }
 
     // Determine storage path based on media type
-    final mediaFolder = type == MediaType.rawFootage
-        ? 'raw'
+    final mediaFolder = type == MediaType.audio
+        ? 'audio'
         : type == MediaType.editedClip
-            ? 'edited'
-            : 'audio';
-
-    final storagePath = 'projects/$projectId/media/$mediaFolder/$fileName';
+            ? 'processed'
+            : 'raw';
+    final storagePath = 'media/$projectId/$mediaFolder/$fileName';
 
     // Upload to Supabase Storage
     try {
@@ -234,5 +236,54 @@ class MediaRepositoryImpl implements MediaRepository {
                 position: data['position'] as int? ?? 0,
               );
             }).toList());
+  }
+
+  @override
+  Future<Either<String, MediaAsset>> processVideo({
+    required String videoUrl,
+    required String projectId,
+    required int position,
+    int layer = 0,
+  }) async {
+    try {
+      // Initialize video player to get metadata
+      final controller = CachedVideoPlayerPlusController.networkUrl(
+        Uri.parse(videoUrl),
+      );
+      await controller.initialize();
+
+      final duration = controller.value.duration;
+      final size = controller.value.size;
+
+      // Clean up controller
+      await controller.dispose();
+
+      // Process the video
+      final result = await _mediaProcessingService.processVideo(
+        videoUrl: videoUrl,
+        projectId: projectId,
+        position: position,
+        layer: layer,
+      );
+
+      return right(MediaAsset(
+        id: result['id'] as String,
+        fileUrl: result['url'] as String,
+        fileName: result['fileName'] as String,
+        projectId: projectId,
+        position: position,
+        layer: layer,
+        type: MediaType.editedClip,
+        fileSize: 0, // Will be updated after processing
+        uploadedAt: DateTime.now(),
+        duration: duration,
+        metadata: {
+          'width': size.width.toInt(),
+          'height': size.height.toInt(),
+        },
+      ));
+    } catch (e) {
+      return left('Error processing video: ${e.toString()}');
+    }
   }
 }

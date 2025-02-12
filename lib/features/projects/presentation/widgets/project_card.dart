@@ -124,7 +124,7 @@ class ProjectCard extends StatelessWidget {
                     Text(
                       project.title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: const Color(0xFFFAFAFA),
+                            color: Theme.of(context).colorScheme.surface,
                             fontWeight: FontWeight.w600,
                           ),
                       maxLines: 1,
@@ -136,15 +136,14 @@ class ProjectCard extends StatelessWidget {
                         Icon(
                           Icons.visibility_outlined,
                           size: 16,
-                          color: Colors.white70,
+                          color: Theme.of(context).colorScheme.surface.withOpacity(0.7),
                         ),
                         const SizedBox(width: 4),
                         Text(
                           '${project.analytics.views}',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.white70,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.surface.withOpacity(0.7),
+                              ),
                         ),
                         const SizedBox(width: 16),
                         Icon(

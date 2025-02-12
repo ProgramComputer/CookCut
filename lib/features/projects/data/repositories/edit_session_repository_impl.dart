@@ -100,10 +100,12 @@ class EditSessionRepositoryImpl implements EditSessionRepository {
         if (sessionDoc.exists) {
           // Use a transaction to ensure atomic update
           await _firestore.runTransaction((transaction) async {
+            final now = Timestamp.now();
             transaction.update(sessionRef, {
               'isActive': false,
-              'lastActivityAt': Timestamp.now(),
-              'endedAt': Timestamp.now(), // Add this to help with querying
+              'lastActivityAt': now,
+              'endedAt': now,
+              'endedBy': userId,
             });
           });
           return const Right(null);

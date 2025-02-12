@@ -95,6 +95,73 @@ This rule ensures:
   - Implement proper font management
   - Follow proper localization techniques
   - Use proper resource naming conventions
+  - **Supabase Storage Structure:**
+    - Follow the established bucket structure for `cookcut-media`:
+      ```
+      cookcut-media/
+      └── media/
+          └── <project-id>/
+              ├── thumbnails/    # For preview images
+              ├── raw/          # For original uploads
+              └── processed/    # For processed files
+      ```
+    - When modifying storage paths:
+      1. Document the change in PRD.md
+      2. Provide migration plan for existing files
+      3. Update all related services consistently
+      4. Ask for confirmation before changing established paths
+    - Storage path changes require:
+      - Team discussion
+      - Documentation update
+      - Migration strategy
+      - Rollback plan
+    - Maintain consistent naming across:
+      - Storage service methods
+      - Repository implementations
+      - URL construction
+      - Path extraction utilities
+
+- **Firestore Rules Synchronization:**
+  - **IMPORTANT: This section MUST be kept in sync with `firestore.rules`**
+  - Any changes to Firestore access patterns MUST:
+    1. First review `firestore.rules` at root directory
+    2. If changes needed, update `firestore.rules` first
+    3. Then reflect those changes here and in implementations
+    4. If rules don't exist, request addition to `firestore.rules`
+
+  - Current Firestore Structure (from `firestore.rules`):
+    ```
+    projects/{projectId}/
+    ├── media_assets/{assetId}/
+    │   └── comments/{commentId}      # See firestore.rules:match /projects/{projectId}/media_assets/{assetId}/comments/{commentId}
+    ├── collaborators/{userId}        # See firestore.rules:match /projects/{projectId}/collaborators/{userId}
+    ├── video_overlays/{overlayId}    # See firestore.rules:match /projects/{projectId}/video_overlays/{overlayId}
+    └── edit_sessions/               # See firestore.rules:match /projects/{projectId}/edit_sessions/{sessionId}
+    ```
+
+  - Repository Implementation Requirements:
+    1. MUST implement ALL permission checks from `firestore.rules`
+    2. MUST handle ALL error cases defined in rules
+    3. MUST use helper functions defined in rules (e.g., `isOneOfRoles`, `isSignedIn`)
+    4. CANNOT bypass any restrictions set in rules
+
+  - Permission Mapping (must match `firestore.rules`):
+    - Authentication: `isSignedIn()`
+    - Project Access: `isOneOfRoles(projectId, ['owner', 'editor', 'viewer'])`
+    - Edit Access: `isOneOfRoles(projectId, ['owner', 'editor'])`
+    - Owner Access: `resource.data.user_id == request.auth.uid`
+
+  - When Implementing New Features:
+    1. Check if required rules exist in `firestore.rules`
+    2. If not, request rule addition/modification
+    3. Only proceed with implementation after rules are updated
+    4. Document rule dependencies in repository classes
+
+  - Testing Requirements:
+    - Unit tests MUST verify against `firestore.rules` conditions
+    - Integration tests MUST validate rule compliance
+    - Mock responses MUST reflect rule restrictions
+    - Error handling MUST match rule failure cases
 
 - **Package Management:**
   - Always use `flutter pub add [package_name]` to add new dependencies

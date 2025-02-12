@@ -25,11 +25,11 @@ class Project extends Equatable {
 
   factory Project({
     required String id,
-    required String userId,
-    required String title,
-    required String description,
-    required DateTime createdAt,
-    required DateTime updatedAt,
+    String userId = '',
+    String title = '',
+    String description = '',
+    DateTime? createdAt,
+    DateTime? updatedAt,
     String? thumbnailUrl,
     int collaboratorsCount = 0,
     ProjectAnalytics? analytics,
@@ -39,11 +39,41 @@ class Project extends Equatable {
       userId: userId,
       title: title,
       description: description,
-      createdAt: createdAt,
-      updatedAt: updatedAt,
+      createdAt: createdAt ?? DateTime.now(),
+      updatedAt: updatedAt ?? DateTime.now(),
       thumbnailUrl: thumbnailUrl,
       collaboratorsCount: collaboratorsCount,
       analytics: analytics ?? ProjectAnalytics.defaultAnalytics,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'userId': userId,
+      'title': title,
+      'description': description,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
+      'thumbnailUrl': thumbnailUrl,
+      'collaboratorsCount': collaboratorsCount,
+      'analytics': analytics.toJson(),
+    };
+  }
+
+  factory Project.fromJson(Map<String, dynamic> json) {
+    return Project(
+      id: json['id'] as String,
+      userId: json['userId'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
+      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
+      thumbnailUrl: json['thumbnailUrl'] as String?,
+      collaboratorsCount: json['collaboratorsCount'] as int? ?? 0,
+      analytics: json['analytics'] != null
+          ? ProjectAnalytics.fromJson(json['analytics'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -96,6 +126,23 @@ class ProjectAnalytics extends Equatable {
 
   factory ProjectAnalytics.now() {
     return ProjectAnalytics(lastUpdated: DateTime.now());
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'views': views,
+      'engagementRate': engagementRate,
+      'millisecondsSinceEpoch': _millisecondsSinceEpoch,
+    };
+  }
+
+  factory ProjectAnalytics.fromJson(Map<String, dynamic> json) {
+    final millisecondsSinceEpoch = json['millisecondsSinceEpoch'] as int? ?? 0;
+    return ProjectAnalytics(
+      views: json['views'] as int? ?? 0,
+      engagementRate: json['engagementRate'] as double? ?? 0.0,
+      lastUpdated: DateTime.fromMillisecondsSinceEpoch(millisecondsSinceEpoch),
+    );
   }
 
   @override

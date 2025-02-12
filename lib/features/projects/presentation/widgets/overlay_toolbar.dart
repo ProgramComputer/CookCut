@@ -25,6 +25,8 @@ class OverlayToolbar extends StatelessWidget {
       endTime: 5,
       x: 0.5,
       y: 0.5,
+      color: '#FFFFFF',
+      fontSize: 24.0,
     );
     onAddText(overlay);
   }
@@ -36,6 +38,8 @@ class OverlayToolbar extends StatelessWidget {
       startTime: 0,
       x: 0.5,
       y: 0.5,
+      color: '#FFFFFF',
+      fontSize: 24.0,
     );
     onAddTimer(overlay);
   }
@@ -43,127 +47,106 @@ class OverlayToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final size = MediaQuery.of(context).size;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: size.width,
+        maxHeight: size.height * 0.4, // Limit height to 40% of screen
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Category tabs
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: theme.dividerColor,
-                  width: 0.5,
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Category tabs
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: theme.dividerColor,
+                    width: 0.5,
+                  ),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _CategoryTab(
+                    icon: Icons.text_fields,
+                    label: 'Text',
+                    isSelected: true,
+                  ),
+                  _CategoryTab(
+                    icon: Icons.timer,
+                    label: 'Timer',
+                  ),
+                  _CategoryTab(
+                    icon: Icons.style,
+                    label: 'Effects',
+                  ),
+                ],
+              ),
+            ),
+            // Scrollable content area
+            Flexible(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Quick Styles',
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _TextPreset(
+                              label: 'Title',
+                              onTap: () => _addStyledText('Title', 32),
+                            ),
+                            _TextPreset(
+                              label: 'Subtitle',
+                              onTap: () => _addStyledText('Subtitle', 24),
+                            ),
+                            _TextPreset(
+                              label: 'Step',
+                              onTap: () => _addStyledText('Step 1', 28),
+                            ),
+                            _TextPreset(
+                              label: 'Ingredient',
+                              onTap: () => _addStyledText('Ingredient', 20),
+                            ),
+                            _TextPreset(
+                              label: 'Note',
+                              onTap: () => _addStyledText('Note', 18),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _CategoryTab(
-                  icon: Icons.text_fields,
-                  label: 'Text',
-                  isSelected: true,
-                ),
-                _CategoryTab(
-                  icon: Icons.timer,
-                  label: 'Timer',
-                ),
-                _CategoryTab(
-                  icon: Icons.style,
-                  label: 'Effects',
-                ),
-              ],
-            ),
-          ),
-          // Text presets
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Quick Styles',
-                  style: theme.textTheme.titleSmall,
-                ),
-                const SizedBox(height: 8),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _TextPreset(
-                        label: 'Title',
-                        onTap: () => _addStyledText('Title', 32),
-                      ),
-                      _TextPreset(
-                        label: 'Subtitle',
-                        onTap: () => _addStyledText('Subtitle', 24),
-                      ),
-                      _TextPreset(
-                        label: 'Step',
-                        onTap: () => _addStyledText('Step 1', 28),
-                      ),
-                      _TextPreset(
-                        label: 'Ingredient',
-                        onTap: () => _addStyledText('Ingredient', 20),
-                      ),
-                      _TextPreset(
-                        label: 'Note',
-                        onTap: () => _addStyledText('Note', 18),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Timer Presets',
-                  style: theme.textTheme.titleSmall,
-                ),
-                const SizedBox(height: 8),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _TimerPreset(
-                        label: '30s',
-                        onTap: () => _addPresetTimer(30, 'Quick Timer'),
-                      ),
-                      _TimerPreset(
-                        label: '1m',
-                        onTap: () => _addPresetTimer(60, 'Cook Timer'),
-                      ),
-                      _TimerPreset(
-                        label: '5m',
-                        onTap: () => _addPresetTimer(300, 'Cooking'),
-                      ),
-                      _TimerPreset(
-                        label: '10m',
-                        onTap: () => _addPresetTimer(600, 'Baking'),
-                      ),
-                      _TimerPreset(
-                        label: 'Custom',
-                        onTap: _addNewTimer,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -177,6 +160,7 @@ class OverlayToolbar extends StatelessWidget {
       x: 0.5,
       y: 0.5,
       fontSize: fontSize,
+      color: '#FFFFFF',
     );
     onAddText(overlay);
   }
@@ -189,6 +173,8 @@ class OverlayToolbar extends StatelessWidget {
       x: 0.5,
       y: 0.5,
       label: label,
+      color: '#FFFFFF',
+      fontSize: 24.0,
     );
     onAddTimer(overlay);
   }

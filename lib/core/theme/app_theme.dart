@@ -27,12 +27,12 @@ class AppTheme {
   static const splashBackgroundDark = Color(0xFF001F3D);
 
   /// Text Colors - Light
-  static const textPrimaryLight = Color(0xFF263238);
-  static const textSecondaryLight = Color(0xFF37474F);
+  static const textPrimaryLight = Color(0xFF0A1F2E);
+  static const textSecondaryLight = Color(0xFF2C4B5E);
 
   /// Text Colors - Dark
-  static const textPrimaryDark = Color(0xFFE4F2FD);
-  static const textSecondaryDark = Color(0xFFBAE2F6);
+  static const textPrimaryDark = Color(0xFFEDF3F7);
+  static const textSecondaryDark = Color(0xFFCBDDE7);
 
   /// Semantic Colors
   static const error = Color(0xFFF44336);

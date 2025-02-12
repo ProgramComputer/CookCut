@@ -59,6 +59,10 @@ android {
             signingConfig signingConfigs.release
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
+        }
+         debug {
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
     }
 }
@@ -68,7 +72,11 @@ flutter {
 }
 
 dependencies {
-    // Add ExoPlayer dependency for better video support
+    // Play Core library for dynamic feature delivery - updated dependencies
+    implementation 'com.google.android.play:app-update:2.0.1'  // Keep this as the main dependency
+    implementation 'com.google.android.play:core-common:2.0.3' // This is needed for common interfaces
+    // Remove redundant core implementation since it's included in app-update
+    // implementation 'com.google.android.play:core:1.10.3'
     implementation 'com.google.android.exoplayer:exoplayer-core:2.19.1'
     implementation 'com.google.android.exoplayer:exoplayer-hls:2.19.1'
 }

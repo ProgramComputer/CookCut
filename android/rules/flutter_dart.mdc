@@ -1,4 +1,8 @@
 ---
+description: 
+globs: 
+---
+---
 description: Enforce Flutter and Dart coding standards across all Dart files (both application and tests) to ensure high-quality code. This rule addresses null safety, widget composition, effective dependency injection, and coding patterns in line with Material 3 design principles and Flutter best practices.
 globs: lib/**/*.dart, test/**/*.dart
 ---

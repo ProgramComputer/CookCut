@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
+import 'package:cached_video_player_plus/cached_video_player_plus.dart';
 import '../../data/services/ffmpeg_service.dart';
 import '../../domain/entities/media_asset.dart';
 import 'dart:async';
@@ -25,7 +25,7 @@ class VideoTrimWidget extends StatefulWidget {
 
 class _VideoTrimWidgetState extends State<VideoTrimWidget>
     with SingleTickerProviderStateMixin {
-  late VideoPlayerController _controller;
+  late CachedVideoPlayerPlusController _controller;
   final FFmpegService _ffmpegService = FFmpegService();
   bool _isLoading = false;
   double _startValue = 0.0;
@@ -52,7 +52,9 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
   }
 
   Future<void> _initializeVideo() async {
-    _controller = VideoPlayerController.network(widget.mediaAsset.fileUrl);
+    _controller = CachedVideoPlayerPlusController.networkUrl(
+      Uri.parse(widget.mediaAsset.fileUrl),
+    );
     await _controller.initialize();
     _duration = _controller.value.duration;
     setState(() {});
@@ -439,7 +441,7 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        VideoPlayer(_controller),
+                        CachedVideoPlayerPlus(_controller),
                         if (_isLoading)
                           Container(
                             color: Colors.black54,

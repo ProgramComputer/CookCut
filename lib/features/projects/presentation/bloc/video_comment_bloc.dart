@@ -280,4 +280,8 @@ class VideoCommentBloc extends Bloc<VideoCommentEvent, VideoCommentState> {
     _commentSubscription?.cancel();
     return super.close();
   }
+
+  void dispose() {
+    close();
+  }
 }

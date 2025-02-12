@@ -1,5 +1,9 @@
 ---
 description: 
+globs: 
+---
+---
+description: 
 globs:  **/*.gradle  -,**/*.gradle.kts   ,**/gradle.properties   , **/settings.gradle"   , **/settings.gradle.kts
 ---
 ---

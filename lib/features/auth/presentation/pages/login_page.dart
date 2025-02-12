@@ -61,27 +61,16 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   String get logoAsset {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return isDark
-        ? 'assets/icon/logo_dark_fixed.svg'
-        : 'assets/icon/logo_fixed.svg';
+    return 'assets/icon/logo_fixed.svg';
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final backgroundColor = isDark
-        ? const Color(0xFF001A2F) // Dark mode background
-        : const Color(0xFFFAFAFA); // Light mode background
-    final surfaceColor = isDark
-        ? const Color(0xFF002542) // Dark mode surface
-        : const Color(0xFFF5F5F5); // Light mode surface
-    final textColor = isDark
-        ? const Color(0xFFE4F2FD) // Dark mode text
-        : const Color(0xFF263238); // Light mode text
-    final secondaryTextColor = isDark
-        ? const Color(0xFFBAE2F6) // Dark mode secondary text
-        : const Color(0xFF37474F); // Light mode secondary text
+    final backgroundColor = const Color(0xFFFAFAFA); // Light mode background
+    final surfaceColor = const Color(0xFFF5F5F5); // Light mode surface
+    final textColor = const Color(0xFF263238); // Light mode text
+    final secondaryTextColor =
+        const Color(0xFF37474F); // Light mode secondary text
 
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
