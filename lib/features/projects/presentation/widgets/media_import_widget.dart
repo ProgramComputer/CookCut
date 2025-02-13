@@ -8,6 +8,7 @@ import '../bloc/media_bloc.dart';
 import '../../domain/entities/media_asset.dart';
 import 'package:image_picker/image_picker.dart';
 import 'audio_recording_dialog.dart';
+import 'generate_recipe_video_dialog.dart';
 
 class MediaImportWidget extends StatefulWidget {
   final String projectId;
@@ -156,6 +157,20 @@ class _MediaImportWidgetState extends State<MediaImportWidget> {
     }
   }
 
+  void _showGenerateVideoDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => GenerateRecipeVideoDialog(
+        projectId: widget.projectId,
+        onVideoGenerated: (mediaAsset) {
+          context.read<MediaBloc>().add(
+                AddGeneratedMedia(mediaAsset),
+              );
+        },
+      ),
+    );
+  }
+
   Future<void> _validateAndProcessFile(File file) async {
     try {
       final mimeType = lookupMimeType(file.path);
@@ -245,6 +260,12 @@ class _MediaImportWidgetState extends State<MediaImportWidget> {
                       FloatingActionButton(
                         onPressed: _showRecordingOptions,
                         child: const Icon(Icons.fiber_manual_record),
+                      ),
+                      const SizedBox(width: 16),
+                      FloatingActionButton.extended(
+                        onPressed: _showGenerateVideoDialog,
+                        icon: const Icon(Icons.auto_awesome),
+                        label: const Text('Generate Recipe Video'),
                       ),
                     ],
                   ),

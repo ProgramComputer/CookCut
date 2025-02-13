@@ -21,7 +21,12 @@ class AnalyticsPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Analytics'),
+        title: Text(
+          'Analytics',
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onBackground,
+              ),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.calendar_today_outlined),

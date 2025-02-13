@@ -20,13 +20,15 @@ class EditStatusBanner extends StatelessWidget {
 
         if (state.currentSession == null) {
           if (state.canEdit) {
-            return FilledButton.icon(
-              onPressed: () {
-                context.read<EditSessionBloc>().add(StartEditing(projectId));
-              },
-              icon: const Icon(Icons.edit),
-              label: const Text('Start Editing'),
-            );
+            // Temporarily removed Start Editing button
+            // return FilledButton.icon(
+            //   onPressed: () {
+            //     context.read<EditSessionBloc>().add(StartEditing(projectId));
+            //   },
+            //   icon: const Icon(Icons.edit),
+            //   label: const Text('Start Editing'),
+            // );
+            return const SizedBox.shrink();
           }
           return const SizedBox.shrink();
         }

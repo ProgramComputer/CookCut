@@ -26,4 +26,7 @@ abstract class MediaRepository {
 
   /// Watch media assets for a project in real-time
   Stream<List<MediaAsset>> watchProjectMedia(String projectId);
+
+  /// Add a generated media asset to the repository
+  Future<void> addMediaAsset(MediaAsset asset);
 }

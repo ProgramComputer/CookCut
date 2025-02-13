@@ -63,7 +63,7 @@ class _CommentPanelState extends State<CommentPanel> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 300,
+      width: 350,
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         border: Border(
@@ -225,11 +225,12 @@ class _CommentTile extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
-        padding: const EdgeInsets.all(8.0),
+        padding: const EdgeInsets.all(12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CircleAvatar(
                   backgroundImage: comment.authorAvatarUrl != null
@@ -239,7 +240,7 @@ class _CommentTile extends StatelessWidget {
                       ? Text(comment.authorName[0].toUpperCase())
                       : null,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -255,6 +256,12 @@ class _CommentTile extends StatelessWidget {
                                   .colorScheme
                                   .onSurfaceVariant,
                             ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        comment.text,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                        softWrap: true,
                       ),
                     ],
                   ),
@@ -285,8 +292,6 @@ class _CommentTile extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text(comment.text),
-            const SizedBox(height: 4),
             TextButton.icon(
               onPressed: () {
                 // This will be handled by the marker tap

@@ -14,9 +14,11 @@ import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_event.dart';
 import 'features/splash/presentation/pages/splash_screen.dart';
 import 'features/projects/presentation/widgets/background_music_browser.dart';
+import 'package:media_kit/media_kit.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
 
   // Clear all caches on startup
   try {

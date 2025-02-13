@@ -55,28 +55,16 @@ class FFmpegService {
         throw Exception('FFmpeg API key not configured');
       }
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/trim'),
-        headers: headers,
-        body: jsonEncode({
-          'videoUrl': videoUrl,
-          'projectId': projectId,
-          'startTime': startTime.inMilliseconds / 1000.0,
-          'endTime': endTime.inMilliseconds / 1000.0,
-          'position': position,
-          'layer': layer,
-        }),
-      );
+      // Construct FFmpeg command for trimming
+      final command = '''
+        ffmpeg -i input.mp4 -ss ${startTime.inMilliseconds / 1000.0} -t ${(endTime - startTime).inMilliseconds / 1000.0} 
+        -c:v libx264 -c:a aac -avoid_negative_ts make_zero output.mp4
+      '''
+          .replaceAll('\n', ' ')
+          .trim();
 
-      if (response.statusCode == 401) {
-        throw Exception('Unauthorized: Invalid API key');
-      }
-
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
-      } else {
-        throw Exception('Failed to trim video: ${response.body}');
-      }
+      // Use _processVideoUrl which properly handles the /process-url endpoint
+      return await _processVideoUrl(videoUrl, command, projectId);
     } catch (e) {
       print('Error in trimVideo: $e');
       throw Exception('Failed to trim video: $e');

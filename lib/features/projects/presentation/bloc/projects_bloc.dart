@@ -28,6 +28,21 @@ class CreateProject extends ProjectsEvent {
   List<Object?> get props => [title, description];
 }
 
+class UpdateProject extends ProjectsEvent {
+  final String projectId;
+  final String? title;
+  final String? description;
+
+  const UpdateProject({
+    required this.projectId,
+    this.title,
+    this.description,
+  });
+
+  @override
+  List<Object?> get props => [projectId, title, description];
+}
+
 class DeleteProject extends ProjectsEvent {
   final String projectId;
 
@@ -77,6 +92,7 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
         super(const ProjectsState()) {
     on<LoadProjects>(_onLoadProjects);
     on<CreateProject>(_onCreateProject);
+    on<UpdateProject>(_onUpdateProject);
     on<DeleteProject>(_onDeleteProject);
   }
 
@@ -111,6 +127,34 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
       );
 
       final updatedProjects = [...state.projects, newProject];
+      emit(state.copyWith(
+        status: ProjectsStatus.success,
+        projects: updatedProjects,
+      ));
+    } catch (e) {
+      emit(state.copyWith(
+        status: ProjectsStatus.error,
+        error: e.toString(),
+      ));
+    }
+  }
+
+  Future<void> _onUpdateProject(
+    UpdateProject event,
+    Emitter<ProjectsState> emit,
+  ) async {
+    emit(state.copyWith(status: ProjectsStatus.loading));
+    try {
+      final updatedProject = await _projectRepository.updateProject(
+        projectId: event.projectId,
+        title: event.title,
+        description: event.description,
+      );
+
+      final updatedProjects = state.projects.map((project) {
+        return project.id == event.projectId ? updatedProject : project;
+      }).toList();
+
       emit(state.copyWith(
         status: ProjectsStatus.success,
         projects: updatedProjects,

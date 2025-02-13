@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cached_video_player_plus/cached_video_player_plus.dart';
+import 'package:video_player/video_player.dart';
 import '../../data/services/ffmpeg_service.dart';
 import '../../domain/entities/media_asset.dart';
 import 'dart:async';
@@ -8,6 +8,8 @@ import 'package:flutter/rendering.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:isolate';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class VideoTrimWidget extends StatefulWidget {
   final MediaAsset mediaAsset;
@@ -25,7 +27,7 @@ class VideoTrimWidget extends StatefulWidget {
 
 class _VideoTrimWidgetState extends State<VideoTrimWidget>
     with SingleTickerProviderStateMixin {
-  late CachedVideoPlayerPlusController _controller;
+  late VideoPlayerController _controller;
   final FFmpegService _ffmpegService = FFmpegService();
   bool _isLoading = false;
   double _startValue = 0.0;
@@ -52,9 +54,7 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
   }
 
   Future<void> _initializeVideo() async {
-    _controller = CachedVideoPlayerPlusController.networkUrl(
-      Uri.parse(widget.mediaAsset.fileUrl),
-    );
+    _controller = VideoPlayerController.network(widget.mediaAsset.fileUrl);
     await _controller.initialize();
     _duration = _controller.value.duration;
     setState(() {});
@@ -97,15 +97,18 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
                   break;
                 case 'downloading':
                   final downloadProgress = message['downloadProgress'] as num?;
-                  _exportProgress = (downloadProgress?.toDouble() ?? 0.0) * 0.4;
+                  _exportProgress =
+                      (downloadProgress?.toDouble() ?? 0.0).clamp(0.0, 100.0) /
+                          100.0;
                   break;
                 case 'processing':
                   final progress = message['progress'] as num?;
-                  _exportProgress =
-                      40.0 + ((progress?.toDouble() ?? 0.0) * 0.6);
+                  final normalizedProgress =
+                      (progress?.toDouble() ?? 0.0).clamp(0.0, 100.0) / 100.0;
+                  _exportProgress = normalizedProgress;
                   break;
                 case 'complete':
-                  _exportProgress = 100.0;
+                  _exportProgress = 1.0;
                   final outputUrl = message['url'] as String?;
                   if (outputUrl != null) {
                     widget.onTrimComplete(outputUrl);
@@ -134,8 +137,9 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
         _monitorProgressIsolate,
         _IsolateMessage(
           jobId: jobId,
-          baseUrl: _ffmpegService.baseUrl,
           sendPort: receivePort.sendPort,
+          supabaseUrl: dotenv.get('SUPABASE_URL'),
+          supabaseKey: dotenv.get('SUPABASE_ANON_KEY'),
         ),
       );
 
@@ -172,87 +176,62 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
 
   // Static method to run in isolate
   static Future<void> _monitorProgressIsolate(_IsolateMessage message) async {
-    final client = http.Client();
+    final supabase = SupabaseClient(
+      message.supabaseUrl,
+      message.supabaseKey,
+    );
+    StreamSubscription? subscription;
+
     try {
-      print(
-          'Isolate started monitoring job ${message.jobId} at ${message.baseUrl}');
-      Duration delay = const Duration(milliseconds: 500);
-      int consecutiveErrors = 0;
-      const maxErrors = 3;
-      bool isComplete = false;
+      print('Starting Supabase job monitoring for job ${message.jobId}');
 
-      while (!isComplete) {
-        try {
-          final url = Uri.parse('${message.baseUrl}/status/${message.jobId}');
-          print('Polling status at $url');
-
-          final response =
-              await client.get(url).timeout(const Duration(seconds: 5));
-
-          print('Status response: ${response.statusCode} - ${response.body}');
-
-          if (response.statusCode != 200) {
-            throw Exception('Failed to get status: ${response.statusCode}');
-          }
-
-          final status = jsonDecode(response.body) as Map<String, dynamic>;
-          final currentStatus = status['status'] as String? ?? 'unknown';
-
-          print('Current status: $currentStatus');
-
-          // Send status back to main isolate
-          message.sendPort.send(status);
-
-          if (currentStatus == 'complete' || currentStatus == 'failed') {
-            print('Job ${message.jobId} finished with status: $currentStatus');
-            isComplete = true;
-            break;
-          }
-
-          // Exponential backoff for polling
-          if (currentStatus == 'starting' || currentStatus == 'downloading') {
-            delay = const Duration(milliseconds: 500);
-          } else {
-            delay = Duration(milliseconds: delay.inMilliseconds * 2);
-            if (delay > const Duration(seconds: 5)) {
-              delay = const Duration(seconds: 5);
+      // Create a stream subscription to watch the job
+      subscription = supabase
+          .from('video_jobs')
+          .stream(primaryKey: ['id'])
+          .eq('id', message.jobId)
+          .listen((List<Map<String, dynamic>> jobs) {
+            if (jobs.isEmpty) {
+              print('No job data received');
+              return;
             }
-          }
 
-          print('Waiting ${delay.inMilliseconds}ms before next poll');
-          await Future.delayed(delay);
-        } catch (e, stack) {
-          consecutiveErrors++;
-          print('Error in monitoring isolate: $e');
-          print('Stack trace: $stack');
+            final job = jobs.first;
+            print(
+                'Received job update: ${job['status']} - Progress: ${job['progress']}%');
 
-          if (consecutiveErrors >= maxErrors) {
-            print('Max consecutive errors reached, stopping monitoring');
+            // Send status update to main isolate
             message.sendPort.send({
-              'status': 'failed',
-              'error': 'Lost connection to processing server: $e'
+              'status': job['status'],
+              'progress': job['progress'],
+              'url': job['output_url'],
+              'error': job['error']
             });
-            break;
-          }
 
-          delay *= 2;
-          if (delay > const Duration(seconds: 10)) {
-            delay = const Duration(seconds: 10);
-          }
-          print(
-              'Error recovery: waiting ${delay.inMilliseconds}ms before retry');
-          await Future.delayed(delay);
-        }
-      }
+            // If job is complete or failed, close the subscription
+            if (job['status'] == 'complete' || job['status'] == 'failed') {
+              print(
+                  'Job ${message.jobId} finished with status: ${job['status']}');
+              subscription?.cancel();
+              message.sendPort.send('done');
+            }
+          }, onError: (error) {
+            print('Supabase subscription error: $error');
+            message.sendPort.send(
+                {'status': 'failed', 'error': 'Monitoring error: $error'});
+            subscription?.cancel();
+            message.sendPort.send('done');
+          });
+
+      // Keep the isolate alive until explicitly closed
+      await Future.delayed(const Duration(hours: 1));
     } catch (e, stack) {
-      print('Fatal error in isolate: $e');
+      print('Error in Supabase monitoring: $e');
       print('Stack trace: $stack');
       message.sendPort
-          .send({'status': 'failed', 'error': 'Fatal error in monitoring: $e'});
+          .send({'status': 'failed', 'error': 'Monitoring error: $e'});
     } finally {
-      print('Closing isolate resources');
-      client.close();
-      message.sendPort.send('done');
+      subscription?.cancel();
     }
   }
 
@@ -441,7 +420,7 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        CachedVideoPlayerPlus(_controller),
+                        VideoPlayer(_controller),
                         if (_isLoading)
                           Container(
                             color: Colors.black54,
@@ -462,7 +441,9 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
                                         valueColor:
                                             AlwaysStoppedAnimation<Color>(
                                           _exportProgress >= 1.0
-                                              ? Colors.green
+                                              ? Theme.of(context)
+                                                  .colorScheme
+                                                  .tertiary
                                               : Theme.of(context)
                                                   .colorScheme
                                                   .primary,
@@ -472,10 +453,13 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           if (_exportProgress >= 1.0)
-                                            const Icon(
-                                              Icons.check_circle,
-                                              color: Colors.green,
-                                              size: 40,
+                                            Icon(
+                                              Icons
+                                                  .check_circle_outline_rounded,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .tertiary,
+                                              size: 48,
                                             )
                                           else
                                             Text(
@@ -505,7 +489,11 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
                                                 .textTheme
                                                 .bodySmall
                                                 ?.copyWith(
-                                                  color: Colors.white70,
+                                                  color: _exportProgress >= 1.0
+                                                      ? Theme.of(context)
+                                                          .colorScheme
+                                                          .tertiary
+                                                      : Colors.white70,
                                                 ),
                                           ),
                                         ],
@@ -690,12 +678,14 @@ class _TrimSlider extends StatelessWidget {
 // Message class for isolate communication
 class _IsolateMessage {
   final String jobId;
-  final String baseUrl;
   final SendPort sendPort;
+  final String supabaseUrl;
+  final String supabaseKey;
 
   const _IsolateMessage({
     required this.jobId,
-    required this.baseUrl,
     required this.sendPort,
+    required this.supabaseUrl,
+    required this.supabaseKey,
   });
 }

@@ -196,7 +196,7 @@ store/
    ```typescript
    // Video processing service
    const processVideo = async (videoUri: string, command: string) => {
-     const response = await fetch(`${FFMPEG_SERVER_URL}/process-url`, {
+     const response = await fetch(`${AWS_EC2_FFMPEG}/process-url`, {
        method: 'POST',
        body: JSON.stringify({ videoUri, command })
      });

@@ -81,7 +81,7 @@ class JamendoMusic {
           '${(durationInSeconds ~/ 60).toString().padLeft(2, '0')}:${(durationInSeconds % 60).toString().padLeft(2, '0')}',
       audioUrl: audioUrl,
       waveformUrl: json['waveform']?.toString() ?? '',
-      isStreamable: json['streamable'] == true,
+      isStreamable: audioUrl.isNotEmpty,
       audiodownloadAllowed: audiodownloadAllowed,
       previewUrl: previewUrl,
       thumbnailUrl: thumbnailUrl,
@@ -205,13 +205,19 @@ class JamendoService {
         }
         final results = data['results'] as List;
         final tracks = results
-            .map((track) => JamendoMusic.fromJson(track))
-            .where((track) =>
-                track.isStreamable) // Only return tracks that can be streamed
+            .map((track) {
+              final jamendoTrack = JamendoMusic.fromJson(track);
+              print('Track ${jamendoTrack.id} - ${jamendoTrack.name}:');
+              print('  Audio URL: ${jamendoTrack.audioUrl}');
+              print('  Is Streamable: ${jamendoTrack.isStreamable}');
+              return jamendoTrack;
+            })
+            .where((track) => track.isStreamable)
             .toList();
 
         if (tracks.isEmpty) {
           print('No streamable tracks found in response');
+          print('Total tracks before filtering: ${results.length}');
         }
 
         // Cache the results before returning

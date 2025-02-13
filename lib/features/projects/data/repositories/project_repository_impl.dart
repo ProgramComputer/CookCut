@@ -103,6 +103,60 @@ class ProjectRepositoryImpl implements ProjectRepository {
   }
 
   @override
+  Future<Project> updateProject({
+    required String projectId,
+    String? title,
+    String? description,
+  }) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) throw Exception('User not authenticated');
+
+    final projectRef = _firestore.collection('projects').doc(projectId);
+    final project = await projectRef.get();
+
+    if (!project.exists) throw Exception('Project not found');
+    if (project.data()?['user_id'] != userId) {
+      throw Exception('Not authorized to update this project');
+    }
+
+    final now = DateTime.now();
+    final updates = {
+      'updated_at': Timestamp.fromDate(now),
+      if (title != null) 'title': title,
+      if (description != null) 'description': description,
+    };
+
+    await projectRef.update(updates);
+
+    // Get the updated project data
+    final updatedProject = await projectRef.get();
+    final data = updatedProject.data()!;
+
+    return Project(
+      id: updatedProject.id,
+      userId: data['user_id'] as String,
+      title: data['title'] as String,
+      description: data['description'] as String,
+      createdAt: (data['created_at'] as Timestamp).toDate(),
+      updatedAt: (data['updated_at'] as Timestamp).toDate(),
+      thumbnailUrl: data['thumbnail_url'] as String?,
+      collaboratorsCount:
+          (data['collaborators'] as Map<String, dynamic>?)?.length ?? 0,
+      analytics: ProjectAnalytics(
+        views:
+            (data['analytics'] as Map<String, dynamic>)['views'] as int? ?? 0,
+        engagementRate: (data['analytics']
+                as Map<String, dynamic>)['engagement_rate'] as double? ??
+            0.0,
+        lastUpdated: ((data['analytics']
+                    as Map<String, dynamic>)['last_updated'] as Timestamp?)
+                ?.toDate() ??
+            DateTime.now(),
+      ),
+    );
+  }
+
+  @override
   Future<void> deleteProject(String projectId) async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) throw Exception('User not authenticated');

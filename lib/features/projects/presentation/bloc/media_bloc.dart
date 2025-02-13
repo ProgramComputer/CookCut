@@ -64,6 +64,15 @@ class DeleteMedia extends MediaEvent {
   List<Object?> get props => [asset];
 }
 
+class AddGeneratedMedia extends MediaEvent {
+  final MediaAsset mediaAsset;
+
+  const AddGeneratedMedia(this.mediaAsset);
+
+  @override
+  List<Object?> get props => [mediaAsset];
+}
+
 // States
 enum MediaStatus { initial, loading, processing, success, error }
 
@@ -119,6 +128,7 @@ class MediaBloc extends Bloc<MediaEvent, MediaState> {
     on<DeleteMedia>(_onDeleteMedia);
     on<_UpdateMediaAssets>(_onUpdateMediaAssets);
     on<_MediaError>(_onMediaError);
+    on<AddGeneratedMedia>(_onAddGeneratedMedia);
   }
 
   Future<void> _onStartWatchingProjectMedia(
@@ -313,6 +323,29 @@ class MediaBloc extends Bloc<MediaEvent, MediaState> {
         stackTrace: stackTrace,
         name: 'MediaBloc',
       );
+      emit(state.copyWith(
+        status: MediaStatus.error,
+        error: e.toString(),
+      ));
+    }
+  }
+
+  void _onAddGeneratedMedia(
+      AddGeneratedMedia event, Emitter<MediaState> emit) async {
+    try {
+      emit(state.copyWith(status: MediaStatus.loading));
+
+      // Add the generated media to the repository
+      await _mediaRepository.addMediaAsset(event.mediaAsset);
+
+      // Update the state with the new media
+      final updatedAssets = List<MediaAsset>.from(state.assets)
+        ..add(event.mediaAsset);
+      emit(state.copyWith(
+        status: MediaStatus.success,
+        assets: updatedAssets,
+      ));
+    } catch (e) {
       emit(state.copyWith(
         status: MediaStatus.error,
         error: e.toString(),

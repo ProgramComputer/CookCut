@@ -8,5 +8,11 @@ abstract class ProjectRepository {
     required String description,
   });
 
+  Future<Project> updateProject({
+    required String projectId,
+    String? title,
+    String? description,
+  });
+
   Future<void> deleteProject(String projectId);
 }

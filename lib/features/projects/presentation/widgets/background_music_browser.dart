@@ -117,10 +117,8 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
   }
 
   Future<void> _searchMusic(String query) async {
-    // Cancel any pending search
     _searchDebouncer?.cancel();
 
-    // Debounce the search to prevent too many API calls
     _searchDebouncer = Timer(const Duration(milliseconds: 500), () async {
       if (!mounted) return;
 
@@ -143,9 +141,26 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
       } catch (e) {
         if (mounted) {
           setState(() {
-            _error = e.toString();
+            _error =
+                'Unable to connect to music service. Please try again later.';
             _isLoading = false;
+            _musicList = []; // Clear the list on error
           });
+          // Show a more user-friendly error message
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Unable to connect to music service. Please check your internet connection and try again.',
+                style: TextStyle(color: Colors.white),
+              ),
+              backgroundColor: Theme.of(context).colorScheme.error,
+              action: SnackBarAction(
+                label: 'Retry',
+                textColor: Colors.white,
+                onPressed: () => _searchMusic(query),
+              ),
+            ),
+          );
         }
       }
     });
@@ -213,7 +228,34 @@ class _BackgroundMusicBrowserState extends State<BackgroundMusicBrowser> {
             _buildCategoryFilter(),
             const SizedBox(height: 16),
             Expanded(
-              child: _buildMusicList(),
+              child: _error != null
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.cloud_off,
+                            size: 48,
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: () => _loadInitialMusic(),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : _buildMusicList(),
             ),
             const SizedBox(height: 16),
             _buildActionButtons(),

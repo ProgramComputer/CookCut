@@ -286,4 +286,25 @@ class MediaRepositoryImpl implements MediaRepository {
       return left('Error processing video: ${e.toString()}');
     }
   }
+
+  @override
+  Future<void> addMediaAsset(MediaAsset asset) async {
+    // Create Firestore document
+    await _firestore
+        .collection('projects')
+        .doc(asset.projectId)
+        .collection('media_assets')
+        .doc(asset.id)
+        .set({
+      'fileName': asset.fileName,
+      'fileUrl': asset.fileUrl,
+      'thumbnailUrl': asset.thumbnailUrl,
+      'type': asset.type.name,
+      'fileSize': asset.fileSize,
+      'uploadedAt': Timestamp.fromDate(asset.uploadedAt),
+      'metadata': asset.metadata,
+      'position': asset.position,
+      'layer': asset.layer,
+    });
+  }
 }

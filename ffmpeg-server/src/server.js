@@ -20,6 +20,9 @@ const { LangChainTracer, ConsoleCallbackHandler } = require('langchain/callbacks
 const { Client } = require('langsmith');
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
+const fetch = require('node-fetch');
+const ffmpeg = require('fluent-ffmpeg');
+const { HumanMessage, SystemMessage } = require('@langchain/core/messages');
 
 // Add Swagger configuration
 const swaggerOptions = {
@@ -33,7 +36,7 @@ const swaggerOptions = {
     servers: [
       {
         url: process.env.NODE_ENV === 'production' 
-          ? 'https://ec2-52-10-62-41.us-west-2.compute.amazonaws.com'
+          ? '52.10.62.41'
           : 'http://localhost:3000',
         description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
       },
@@ -88,14 +91,14 @@ if (process.env.LANGCHAIN_TRACING_V2 === 'true' &&
 
 // Initialize OpenAI models with tracing
 const visionModel = new ChatOpenAI({
-    modelName: "gpt-4-vision-preview",
-    maxTokens: 1000,
+    modelName: "gpt-4-turbo",  // Latest model with vision capabilities
+    maxTokens: 4096,
     temperature: 0.2,
     callbacks: [tracer]
 });
 
 const recipeModel = new ChatOpenAI({
-    modelName: "gpt-4-1106-preview",
+    modelName: "gpt-4-turbo",  // Update this model as well for consistency
     temperature: 0.3,
     callbacks: [tracer]
 });
@@ -148,9 +151,9 @@ const validateApiKey = (req, res, next) => {
     next();
 };
 
-// Apply API key validation to all routes except health check
+// Apply API key validation to all routes except health check and swagger docs
 app.use((req, res, next) => {
-    if (req.path === '/health') {
+    if (req.path === '/health' || req.path.startsWith('/api-docs')) {
         return next();
     }
     validateApiKey(req, res, next);
@@ -417,14 +420,20 @@ app.post('/process-url', express.json(), async (req, res) => {
 
     // Parse the FFmpeg command
     const parsedCommand = command
+        .replace(/\s+/g, ' ')          // Normalize spaces
         .replace('input.mp4', 'pipe:0')
-        .replace('output.mp4', outputPath);
+        .replace('output.mp4', outputPath)
+        .trim();                       // Remove any trailing spaces
     
     console.log(`Processing job ${jobId} with command: ${parsedCommand}`);
 
     // Start FFmpeg process
-    const args = parsedCommand.split(' ').slice(1);
-    const ffmpeg = spawn('ffmpeg', args);
+    const args = parsedCommand.split(' ')
+        .slice(1)
+        .filter(arg => arg !== '');    // Remove any empty arguments
+    const ffmpeg = spawn('ffmpeg', args, {
+        stdio: ['pipe', 'pipe', 'pipe'] // Explicitly set stdio for proper pipe handling
+    });
     
     let error = '';
 
@@ -593,6 +602,12 @@ app.get('/output/:jobId', async (req, res) => {
 app.post('/analyze-recipe', async (req, res) => {
   const { videoPath, projectId } = req.body;
   
+  console.log('Received analyze-recipe request:', {
+    videoPath: videoPath ? 'present' : 'missing',
+    projectId: projectId ? 'present' : 'missing',
+    body: JSON.stringify(req.body, null, 2)
+  });
+  
   if (!videoPath || !projectId) {
     console.error('Missing required parameters:', { videoPath, projectId });
     return res.status(400).json({ 
@@ -613,20 +628,16 @@ app.post('/analyze-recipe', async (req, res) => {
     fs.mkdirSync(framesDir, { recursive: true });
     console.log('Created temporary directories:', { tempDir, framesDir });
 
-    // Download video from Supabase
-    console.log('Downloading video from Supabase:', videoPath);
-    const { data: videoData, error: downloadError } = await supabase
-      .storage
-      .from('cookcut-media')
-      .download(`${projectId}/media/${videoPath}`);
-
-    if (downloadError) {
-      console.error('Error downloading video:', downloadError);
-      throw downloadError;
+    // Download video directly from URL
+    console.log('Downloading video from URL:', videoPath);
+    const response = await fetch(videoPath);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch video: ${response.status} ${response.statusText}`);
     }
-
+    
     // Save video to temp file
-    fs.writeFileSync(videoFile, Buffer.from(await videoData.arrayBuffer()));
+    const buffer = await response.buffer();
+    fs.writeFileSync(videoFile, buffer);
     console.log('Video downloaded and saved to:', videoFile);
 
     // Extract frames (1 frame per second)
@@ -690,67 +701,214 @@ app.post('/analyze-recipe', async (req, res) => {
     for (const [index, batch] of frameBatches.entries()) {
       console.log(`Processing batch ${index + 1}/${frameBatches.length}`);
       
-      const messages = [{
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `Analyze these ${batch.length} frames from a cooking video and for each frame:
-            1. Identify ingredients visible
-            2. Describe the cooking technique being used
-            3. Note any important measurements or timing
-            4. Identify any special equipment
-            
-            Format your response as a JSON array with timestamps.`
-          },
-          ...batch.map(frame => ({
-            type: "image_url",
-            image_url: `data:image/jpeg;base64,${fs.readFileSync(frame.path).toString('base64')}`
-          }))
-        ]
-      }];
+      // Create LangChain message format
+      const messageContent = [
+        {
+          type: "text",
+          text: `Analyze these ${batch.length} frames from a cooking video and for each frame:
+          1. Identify ingredients visible
+          2. Describe the cooking technique being used
+          3. Note any important measurements or timing
+          4. Identify any special equipment
+          
+          Format your response as a JSON array with timestamps.`
+        },
+        ...batch.map(frame => ({
+          type: "image_url",
+          image_url: {
+            url: `data:image/jpeg;base64,${fs.readFileSync(frame.path).toString('base64')}`
+          }
+        }))
+      ];
 
+      const messages = [
+        new SystemMessage({
+          content: "You are a cooking video analyzer. Always respond with a JSON array where each element represents a frame analysis with timestamp, ingredients, technique, measurements, and equipment fields."
+        }),
+        new HumanMessage({
+          content: messageContent
+        })
+      ];
+      
       const chain = RunnableSequence.from([
-        visionModel,
-        new StringOutputParser(),
-        (text) => JSON.parse(text)
+        {
+          analysis: async (input) => {
+            try {
+              console.log('Raw input type:', typeof input);
+              console.log('Input structure:', JSON.stringify(input, (key, value) => {
+                if (key === 'image_url' && typeof value === 'object' && value.url) {
+                  return '[BASE64_IMAGE]'; // Truncate base64 for logging
+                }
+                return value;
+              }, 2));
+              
+              // Call vision model with LangChain messages
+              const result = await visionModel.invoke(input);
+              console.log('Vision model result:', {
+                type: typeof result,
+                hasContent: 'content' in result,
+                content: result.content
+              });
+              return result.content;
+            } catch (error) {
+              console.error('Vision model error:', error);
+              throw new Error(`Vision model failed: ${error.message}`);
+            }
+          }
+        },
+        (output) => {
+          console.log('Parsing output:', output);
+          try {
+            const parsed = JSON.parse(output);
+            console.log('Parsed output:', parsed);
+            
+            // Ensure we have an array of frame analyses
+            if (!Array.isArray(parsed)) {
+              console.warn('Parsed output is not an array, wrapping in array');
+              return { frames: [parsed] };
+            }
+            
+            return { frames: parsed };
+          } catch (e) {
+            console.error('Error parsing vision model output:', e);
+            console.error('Raw output:', output);
+            return { frames: [] };
+          }
+        }
       ]);
 
+      // Pass LangChain messages to the chain
+      console.log('Invoking chain with LangChain messages');
       const batchAnalysis = await chain.invoke(messages);
-      analyses.push(...batchAnalysis.frames);
+      console.log('Batch analysis result:', batchAnalysis);
+      
+      if (batchAnalysis.frames && batchAnalysis.frames.length > 0) {
+        analyses.push(...batchAnalysis.frames);
+        console.log(`Added ${batchAnalysis.frames.length} frame analyses. Total analyses:`, analyses.length);
+      } else {
+        console.warn('No frames in batch analysis result');
+      }
+      
       console.log(`Completed batch ${index + 1} analysis`);
     }
 
     // Compile final recipe using LangChain
-    console.log('Compiling final recipe...');
+    console.log('Starting recipe compilation...');
+    console.log('Analyses array length:', analyses.length);
+    console.log('Sample of analyses:', JSON.stringify(analyses.slice(0, 2), null, 2));
+    
+    const recipeMessages = [
+      {
+        role: "user",
+        content: `Create a detailed recipe from these timestamped cooking steps. Include:
+        1. Recipe title
+        2. Estimated time and difficulty
+        3. Ingredients list with measurements
+        4. Equipment needed
+        5. Step-by-step instructions with timestamps
+        6. Tips and variations
+        
+        Video metadata: ${JSON.stringify({
+          duration: metadata.format.duration,
+          filename: path.basename(videoPath)
+        })}
+        Frame analyses: ${JSON.stringify(analyses)}`
+      }
+    ];
+    
+    console.log('Recipe messages created:', {
+      type: typeof recipeMessages,
+      isArray: Array.isArray(recipeMessages),
+      length: recipeMessages.length
+    });
+
     const recipeChain = RunnableSequence.from([
-      recipeModel,
-      new StringOutputParser(),
-      (text) => JSON.parse(text)
+      {
+        recipe: async (input) => {
+          console.log('Recipe chain input raw:', input);
+          console.log('Recipe chain input type:', typeof input);
+          
+          if (typeof input === 'string') {
+            try {
+              input = JSON.parse(input);
+              console.log('Parsed string input into:', input);
+            } catch (e) {
+              console.error('Failed to parse string input:', e);
+            }
+          }
+          
+          console.log('Recipe chain input after potential parsing:', {
+            type: typeof input,
+            hasMessages: input && typeof input === 'object' ? 'messages' in input : false,
+            keys: input && typeof input === 'object' ? Object.keys(input) : [],
+            isNull: input === null,
+            isUndefined: input === undefined
+          });
+          
+          // Ensure we have valid input
+          if (!input || typeof input !== 'object') {
+            throw new Error(`Invalid input type: ${typeof input}`);
+          }
+          
+          if (!input.messages) {
+            throw new Error('Input missing messages property');
+          }
+          
+          if (!Array.isArray(input.messages)) {
+            throw new Error(`Messages is not an array: ${typeof input.messages}`);
+          }
+          
+          console.log('Recipe Model Messages:', {
+            type: typeof input.messages,
+            isArray: Array.isArray(input.messages),
+            length: input.messages.length,
+            firstMessage: input.messages[0] ? {
+              hasRole: 'role' in input.messages[0],
+              hasContent: 'content' in input.messages[0],
+              role: input.messages[0].role,
+              contentType: typeof input.messages[0].content
+            } : 'no messages'
+          });
+          
+          const result = await recipeModel.call({
+            messages: input.messages
+          });
+          return result.content;
+        }
+      },
+      (output) => {
+        console.log('Recipe chain output:', {
+          type: typeof output,
+          length: output ? output.length : 0,
+          preview: output ? output.substring(0, 100) : 'no output'
+        });
+        try {
+          return JSON.parse(output);
+        } catch (e) {
+          console.error('Error parsing recipe model output:', e);
+          return {
+            title: 'Recipe Analysis Failed',
+            error: e.message
+          };
+        }
+      }
     ]);
 
-    const recipePrompt = [{
-      role: "system",
-      content: "You are a professional recipe writer. Create a well-structured recipe from the video analysis data."
-    }, {
-      role: "user",
-      content: `Create a detailed recipe from these timestamped cooking steps. Include:
-      1. Recipe title
-      2. Estimated time and difficulty
-      3. Ingredients list with measurements
-      4. Equipment needed
-      5. Step-by-step instructions with timestamps
-      6. Tips and variations
-      
-      Video metadata: ${JSON.stringify({
-        duration: metadata.format.duration,
-        filename: path.basename(videoPath)
-      })}
-      Frame analyses: ${JSON.stringify(analyses)}`
-    }];
+    console.log('About to invoke recipe chain with:', {
+      hasMessages: recipeMessages ? true : false,
+      messagesType: typeof recipeMessages,
+      isArray: Array.isArray(recipeMessages),
+      messagesLength: recipeMessages ? recipeMessages.length : 0,
+      firstMessage: recipeMessages && recipeMessages[0] ? {
+        hasRole: 'role' in recipeMessages[0],
+        hasContent: 'content' in recipeMessages[0]
+      } : 'no messages'
+    });
 
-    const compiledRecipe = await recipeChain.invoke(recipePrompt);
-    console.log('Recipe compilation completed');
+    const compiledRecipe = await recipeChain.invoke({
+      messages: recipeMessages
+    });
+    console.log('Recipe compilation completed with result type:', typeof compiledRecipe);
 
     // Clean up all temporary files
     console.log('Cleaning up temporary files...');
@@ -775,7 +933,14 @@ app.post('/analyze-recipe', async (req, res) => {
 
     res.status(500).json({ 
       success: false, 
-      error: error.message 
+      error: error.message,
+      internalError: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+        code: error.code,
+        details: error.toString()
+      }
     });
   }
 });
@@ -1028,4 +1193,4 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
  *         description: Invalid or missing API key
  *       500:
  *         description: Server error
- */ 
+ */

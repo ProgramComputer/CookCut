@@ -4,6 +4,7 @@ import '../../domain/entities/media_asset.dart';
 import '../bloc/media_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'video_preview.dart';
+import 'audio_preview.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -77,6 +78,13 @@ class MediaGrid extends StatelessWidget {
                               mediaAsset: asset,
                             ),
                           ),
+                        ),
+                      );
+                    } else if (asset.type == MediaType.audio) {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AudioPreview(
+                          mediaAsset: asset,
                         ),
                       );
                     }
