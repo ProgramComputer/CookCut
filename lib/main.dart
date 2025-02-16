@@ -22,9 +22,6 @@ void main() async {
 
   // Clear all caches on startup
   try {
-    // Clear video compression cache
-    await VideoCompress.deleteAllCache();
-
     // Clear all cache managers
     await DefaultCacheManager().emptyCache();
     await JamendoCacheManager.instance.emptyCache();

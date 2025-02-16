@@ -44,7 +44,14 @@ class _AudioPreviewState extends State<AudioPreview> {
       // Listen to position changes
       _player.stream.position.listen((position) {
         if (mounted) {
-          setState(() => _position = position);
+          setState(() {
+            // Ensure position never exceeds duration
+            if (position > _duration) {
+              _position = _duration;
+            } else {
+              _position = position;
+            }
+          });
         }
       });
 
@@ -86,8 +93,11 @@ class _AudioPreviewState extends State<AudioPreview> {
   Future<void> _onSeek(double value) async {
     if (!_isInitialized) return;
 
-    final position = Duration(milliseconds: value.round());
-    await _player.seek(position);
+    // Calculate the target position based on the normalized value
+    final targetPosition = Duration(
+      milliseconds: (value * _duration.inMilliseconds).round(),
+    );
+    await _player.seek(targetPosition);
   }
 
   Future<void> _onSpeedChange(double? speed) async {
@@ -166,8 +176,11 @@ class _AudioPreviewState extends State<AudioPreview> {
                     ),
                   ),
                   Slider(
-                    value: _position.inMilliseconds.toDouble(),
-                    max: _duration.inMilliseconds.toDouble(),
+                    value: _duration.inMilliseconds > 0
+                        ? (_position.inMilliseconds / _duration.inMilliseconds)
+                            .clamp(0.0, 1.0)
+                        : 0.0,
+                    max: 1.0,
                     onChanged: _onSeek,
                   ),
                 ],

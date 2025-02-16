@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import '../../domain/entities/media_asset.dart';
+import '../../domain/entities/background_music.dart';
 import 'video_trim_widget.dart';
 import 'comment_panel.dart';
 import 'comment_marker_overlay.dart';
@@ -15,6 +16,16 @@ import 'background_music_browser.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../bloc/media_bloc.dart';
+import '../../data/repositories/media_repository_impl.dart';
+import '../../data/services/media_processing_service.dart';
+import '../../domain/entities/text_overlay.dart';
+import '../../domain/entities/timer_overlay.dart';
+import 'video_overlay_renderer.dart';
+import 'overlay_toolbar.dart';
+import 'text_overlay_editor.dart';
+import 'timer_overlay_editor.dart';
 
 class VideoPreview extends StatefulWidget {
   final MediaAsset mediaAsset;
@@ -47,6 +58,13 @@ class _VideoPreviewState extends State<VideoPreview> {
   // Cache the video duration to avoid rebuilds
   String? _cachedDuration;
   String? _cachedPosition;
+
+  // Overlay state
+  final List<TextOverlay> _textOverlays = [];
+  final List<TimerOverlay> _timerOverlays = [];
+  bool _isEditingOverlays = false;
+  TextOverlay? _selectedTextOverlay;
+  TimerOverlay? _selectedTimerOverlay;
 
   @override
   void initState() {
@@ -134,15 +152,13 @@ class _VideoPreviewState extends State<VideoPreview> {
     });
   }
 
-  Future<void> _onBackgroundMusicSelected(String url) async {
+  Future<void> _onBackgroundMusicSelected(BackgroundMusic music) async {
     try {
-      // await _musicPlayer?.stop();
-      // await _musicPlayer?.open(Media(url));
-      // await _musicPlayer?.setVolume(_musicVolume * 100);
-      // await _musicPlayer?.play();
       setState(() {
-        _backgroundMusicUrl = url;
+        _backgroundMusicUrl = music.url;
+        _musicVolume = music.volume;
       });
+      Navigator.pop(context); // Dismiss the bottom sheet after selection
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -392,6 +408,231 @@ class _VideoPreviewState extends State<VideoPreview> {
     return _formatDuration(position);
   }
 
+  void _showOverlayOptions() {
+    print('[DEBUG] Showing overlay options');
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                'Add Overlay',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.text_fields),
+              title: const Text('Add Text'),
+              subtitle: const Text('Add text overlay to your video'),
+              onTap: () {
+                print('[DEBUG] Text overlay option tapped');
+                Navigator.pop(context);
+                _addTextOverlay();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.timer),
+              title: const Text('Add Timer'),
+              subtitle: const Text('Add countdown timer to your video'),
+              onTap: () {
+                print('[DEBUG] Timer overlay option tapped');
+                Navigator.pop(context);
+                _addTimerOverlay();
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _removeSelectedOverlay() {
+    setState(() {
+      if (_selectedTextOverlay != null) {
+        _textOverlays.removeWhere((o) => o.id == _selectedTextOverlay!.id);
+        _selectedTextOverlay = null;
+      }
+      if (_selectedTimerOverlay != null) {
+        _timerOverlays.removeWhere((o) => o.id == _selectedTimerOverlay!.id);
+        _selectedTimerOverlay = null;
+      }
+    });
+  }
+
+  void _handleTextOverlaySelected(TextOverlay overlay) {
+    setState(() {
+      _selectedTextOverlay = overlay;
+      _selectedTimerOverlay = null;
+      _isEditingOverlays = true;
+      _isControlsVisible = true;
+    });
+
+    // Show text editor
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: TextOverlayEditor(
+          overlay: overlay,
+          onUpdate: (updated) {
+            setState(() {
+              final index = _textOverlays.indexWhere((o) => o.id == overlay.id);
+              if (index != -1) {
+                _textOverlays[index] = updated;
+              }
+            });
+          },
+          onDelete: () {
+            setState(() {
+              _textOverlays.removeWhere((o) => o.id == overlay.id);
+              _selectedTextOverlay = null;
+            });
+            Navigator.pop(context);
+          },
+          videoWidth: _player!.value.size.width,
+          videoHeight: _player!.value.size.height,
+        ),
+      ),
+    );
+  }
+
+  void _handleTimerOverlaySelected(TimerOverlay overlay) {
+    setState(() {
+      _selectedTimerOverlay = overlay;
+      _selectedTextOverlay = null;
+      _isEditingOverlays = true;
+      _isControlsVisible = true;
+    });
+
+    // Show timer editor
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: TimerOverlayEditor(
+          overlay: overlay,
+          onUpdate: (updated) {
+            setState(() {
+              final index =
+                  _timerOverlays.indexWhere((o) => o.id == overlay.id);
+              if (index != -1) {
+                _timerOverlays[index] = updated;
+              }
+            });
+          },
+          onDelete: () {
+            setState(() {
+              _timerOverlays.removeWhere((o) => o.id == overlay.id);
+              _selectedTimerOverlay = null;
+            });
+            Navigator.pop(context);
+          },
+          videoWidth: _player!.value.size.width,
+          videoHeight: _player!.value.size.height,
+        ),
+      ),
+    );
+  }
+
+  void _addTextOverlay() {
+    print('[DEBUG] Adding text overlay');
+    if (_player == null) {
+      print('[DEBUG] Player is null');
+      return;
+    }
+
+    setState(() {
+      final overlay = TextOverlay(
+        id: DateTime.now().toString(),
+        text: 'New Text',
+        startTime: _player!.value.position.inSeconds.toDouble(),
+        endTime: _player!.value.position.inSeconds.toDouble() + 5,
+        x: 0.5,
+        y: 0.5,
+        color: '#FFFFFF',
+        fontSize: 24.0,
+        fontFamily: 'Arial',
+        backgroundColor: '#000000',
+        backgroundOpacity: 0.5,
+        isBold: false,
+        isItalic: false,
+        alignment: 'center',
+        scale: 1.0,
+        rotation: 0.0,
+      );
+      print('[DEBUG] Created text overlay: ${overlay.id}');
+      _textOverlays.add(overlay);
+      _isEditingOverlays = true;
+      _selectedTextOverlay = overlay;
+      print('[DEBUG] Text overlays count: ${_textOverlays.length}');
+    });
+  }
+
+  void _addTimerOverlay() {
+    print('[DEBUG] Adding timer overlay');
+    if (_player == null) {
+      print('[DEBUG] Player is null');
+      return;
+    }
+
+    setState(() {
+      final overlay = TimerOverlay(
+        id: DateTime.now().toString(),
+        durationSeconds: 60,
+        startTime: _player!.value.position.inSeconds.toDouble(),
+        x: 0.5,
+        y: 0.5,
+        color: '#FFFFFF',
+        fontSize: 24.0,
+        backgroundColor: '#000000',
+        backgroundOpacity: 0.5,
+        style: 'minimal',
+        showMilliseconds: false,
+        alignment: 'center',
+        scale: 1.0,
+      );
+      print('[DEBUG] Created timer overlay: ${overlay.id}');
+      _timerOverlays.add(overlay);
+      _isEditingOverlays = true;
+      _selectedTimerOverlay = overlay;
+      print('[DEBUG] Timer overlays count: ${_timerOverlays.length}');
+    });
+  }
+
+  void _handleTextDragEnd(TextOverlay overlay, Offset offset) {
+    setState(() {
+      final index = _textOverlays.indexWhere((o) => o.id == overlay.id);
+      if (index != -1) {
+        _textOverlays[index] = overlay.copyWith(
+          x: offset.dx / _player!.value.size.width,
+          y: offset.dy / _player!.value.size.height,
+        );
+      }
+    });
+  }
+
+  void _handleTimerDragEnd(TimerOverlay overlay, Offset offset) {
+    setState(() {
+      final index = _timerOverlays.indexWhere((o) => o.id == overlay.id);
+      if (index != -1) {
+        _timerOverlays[index] = overlay.copyWith(
+          x: offset.dx / _player!.value.size.width,
+          y: offset.dy / _player!.value.size.height,
+        );
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_isInitialized || _player == null) {
@@ -431,6 +672,20 @@ class _VideoPreviewState extends State<VideoPreview> {
                   fit: StackFit.expand,
                   children: [
                     VideoPlayer(_player!),
+                    VideoOverlayRenderer(
+                      textOverlays: _textOverlays,
+                      timerOverlays: _timerOverlays,
+                      currentTime: _player!.value.position.inSeconds.toDouble(),
+                      videoWidth: _player!.value.size.width,
+                      videoHeight: _player!.value.size.height,
+                      isEditing: _isEditingOverlays,
+                      onTextDragEnd: _handleTextDragEnd,
+                      onTimerDragEnd: _handleTimerDragEnd,
+                      selectedTextOverlay: _selectedTextOverlay,
+                      selectedTimerOverlay: _selectedTimerOverlay,
+                      onTextSelected: _handleTextOverlaySelected,
+                      onTimerSelected: _handleTimerOverlaySelected,
+                    ),
                     // Controls overlay
                     if (_isControlsVisible)
                       Stack(
@@ -440,9 +695,12 @@ class _VideoPreviewState extends State<VideoPreview> {
                             child: GestureDetector(
                               behavior: HitTestBehavior.translucent,
                               onTap: () {
-                                setState(() {
-                                  _isControlsVisible = !_isControlsVisible;
-                                });
+                                // Only toggle controls if we're not editing overlays
+                                if (!_isEditingOverlays) {
+                                  setState(() {
+                                    _isControlsVisible = !_isControlsVisible;
+                                  });
+                                }
                               },
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -526,12 +784,10 @@ class _VideoPreviewState extends State<VideoPreview> {
                                   const SizedBox(width: 8),
                                   IconButton.filledTonal(
                                     onPressed: () {
-                                      _toggleComments();
+                                      _showOverlayOptions();
                                       HapticFeedback.lightImpact();
                                     },
-                                    icon: Icon(_showComments
-                                        ? Icons.comment
-                                        : Icons.comment_outlined),
+                                    icon: const Icon(Icons.text_fields),
                                     style: IconButton.styleFrom(
                                       backgroundColor: Colors.black45,
                                       foregroundColor: Colors.white,
@@ -540,35 +796,66 @@ class _VideoPreviewState extends State<VideoPreview> {
                                   const SizedBox(width: 8),
                                   IconButton.filledTonal(
                                     onPressed: () {
-                                      final currentPosition =
-                                          _player!.value.position;
-                                      context.read<VideoCommentBloc>().add(
-                                            AddComment(
-                                              projectId:
-                                                  widget.mediaAsset.projectId,
-                                              assetId: widget.mediaAsset.id,
-                                              timestamp: currentPosition,
-                                              text: '',
+                                      print(
+                                          '[VideoPreview] Opening BackgroundMusicBrowser');
+                                      showModalBottomSheet(
+                                        context: context,
+                                        isScrollControlled: true,
+                                        useSafeArea: true,
+                                        constraints: BoxConstraints(
+                                          maxHeight: MediaQuery.of(context)
+                                                  .size
+                                                  .height *
+                                              0.9,
+                                        ),
+                                        builder: (context) {
+                                          print(
+                                              '[VideoPreview] Building BackgroundMusicBrowser modal');
+                                          return SizedBox(
+                                            width: double.infinity,
+                                            child: BlocProvider(
+                                              create: (context) => MediaBloc(
+                                                mediaRepository:
+                                                    MediaRepositoryImpl(
+                                                  firestore: FirebaseFirestore
+                                                      .instance,
+                                                  supabase:
+                                                      Supabase.instance.client,
+                                                  auth: FirebaseAuth.instance,
+                                                  mediaProcessingService:
+                                                      MediaProcessingService(
+                                                    supabase: Supabase
+                                                        .instance.client,
+                                                  ),
+                                                ),
+                                              ),
+                                              child: BackgroundMusicBrowser(
+                                                onMusicSelected:
+                                                    _onBackgroundMusicSelected,
+                                                onCancel: () =>
+                                                    Navigator.pop(context),
+                                                projectId:
+                                                    widget.mediaAsset.projectId,
+                                                videoDuration: _player
+                                                        ?.value.duration ??
+                                                    const Duration(seconds: 0),
+                                                onPreviewPositionChanged:
+                                                    (position) {
+                                                  if (_player != null) {
+                                                    _player!.seekTo(position);
+                                                  }
+                                                },
+                                              ),
                                             ),
                                           );
-                                      if (!_showComments) {
-                                        _toggleComments();
-                                      }
+                                        },
+                                      ).then((_) {
+                                        print(
+                                            '[VideoPreview] BackgroundMusicBrowser modal closed');
+                                      });
                                       HapticFeedback.lightImpact();
                                     },
-                                    icon: const Icon(Icons.edit),
-                                    style: IconButton.styleFrom(
-                                      backgroundColor: Colors.black45,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  IconButton.filledTonal(
-                                    onPressed: () {
-                                      _analyzeRecipe();
-                                      HapticFeedback.lightImpact();
-                                    },
-                                    icon: const Icon(Icons.restaurant_menu),
+                                    icon: const Icon(Icons.music_note),
                                     style: IconButton.styleFrom(
                                       backgroundColor: Colors.black45,
                                       foregroundColor: Colors.white,
@@ -578,16 +865,48 @@ class _VideoPreviewState extends State<VideoPreview> {
                               ),
                             ),
                           ),
+                          // Move audio controls next to the close button for better reachability
                           Positioned(
                             top: 8,
                             right: 8,
-                            child: IconButton.filledTonal(
-                              onPressed: () => Navigator.of(context).pop(),
-                              icon: const Icon(Icons.close),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.black45,
-                                foregroundColor: Colors.white,
-                              ),
+                            child: Row(
+                              children: [
+                                if (_backgroundMusicUrl != null)
+                                  Container(
+                                    width: 100,
+                                    margin: const EdgeInsets.only(right: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black45,
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const SizedBox(width: 8),
+                                        const Icon(
+                                          Icons.volume_up,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                        Expanded(
+                                          child: Slider(
+                                            value: _musicVolume,
+                                            onChanged: _updateMusicVolume,
+                                            activeColor: Colors.white,
+                                            inactiveColor: Colors.white24,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                IconButton.filledTonal(
+                                  onPressed: () => Navigator.of(context).pop(),
+                                  icon: const Icon(Icons.close),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.black45,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -595,15 +914,13 @@ class _VideoPreviewState extends State<VideoPreview> {
                   ],
                 ),
               ),
-              // Comments or Info Section
+              // Comments Section - Now always visible
               Expanded(
-                child: _showComments
-                    ? CommentPanel(
-                        projectId: widget.mediaAsset.projectId,
-                        assetId: widget.mediaAsset.id,
-                        currentTime: _player!.value.position,
-                      )
-                    : const SizedBox.shrink(),
+                child: CommentPanel(
+                  projectId: widget.mediaAsset.projectId,
+                  assetId: widget.mediaAsset.id,
+                  currentTime: _player!.value.position,
+                ),
               ),
             ],
           ),

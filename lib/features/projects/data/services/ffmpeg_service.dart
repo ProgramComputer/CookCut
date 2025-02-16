@@ -10,6 +10,7 @@ import '../../domain/entities/text_overlay.dart';
 import '../../domain/entities/timer_overlay.dart';
 import 'dart:async';
 import '../../domain/entities/recipe_overlay.dart';
+import '../../domain/entities/background_music.dart';
 
 class FFmpegService {
   final String _baseUrl;
@@ -73,9 +74,17 @@ class FFmpegService {
 
   Future<Map<String, dynamic>> checkJobStatus(String jobId) async {
     try {
+      print('Checking status for job $jobId at $baseUrl');
+
       final response = await http.get(
         Uri.parse('$baseUrl/progress/$jobId'),
+        headers: {
+          'x-api-key': _apiKey,
+          'Content-Type': 'application/json',
+        },
       );
+
+      print('Status response: ${response.statusCode} - ${response.body}');
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
@@ -83,6 +92,7 @@ class FFmpegService {
         throw Exception('Failed to check job status: ${response.body}');
       }
     } catch (e) {
+      print('❌ Error checking job status: $e');
       throw Exception('Failed to check job status: $e');
     }
   }
@@ -121,16 +131,22 @@ class FFmpegService {
     required List<RecipeOverlay> recipeOverlays,
     required double aspectRatio,
     required String projectId,
+    BackgroundMusic? backgroundMusic,
   }) async {
     try {
       print('Starting video export with overlays');
 
-      // Build complex FFmpeg command with overlays
-      final filterComplex =
-          _buildFilterComplex(textOverlays, timerOverlays, recipeOverlays);
+      // Build complex FFmpeg command with overlays and background music
+      final filterComplex = _buildFilterComplex(
+        textOverlays,
+        timerOverlays,
+        recipeOverlays,
+        backgroundMusic,
+      );
 
       final command = '''
-        ffmpeg -i input.mp4 -filter_complex "$filterComplex" 
+        ffmpeg -i input.mp4 ${backgroundMusic != null ? '-i "${backgroundMusic.url}"' : ''} 
+        -filter_complex "$filterComplex" 
         -c:v libx264 -preset medium -crf 23 
         -c:a aac -b:a 192k 
         -movflags +faststart output.mp4
@@ -150,11 +166,25 @@ class FFmpegService {
     List<TextOverlay> textOverlays,
     List<TimerOverlay> timerOverlays,
     List<RecipeOverlay> recipeOverlays,
+    BackgroundMusic? backgroundMusic,
   ) {
     final List<String> filters = [];
     var currentInput = '[0:v]';
     var currentOutput = '[v0]';
     var filterIndex = 1;
+
+    // Add background music if provided
+    if (backgroundMusic != null) {
+      // Mix original audio with background music
+      filters.add(
+          '[0:a][1:a]amix=inputs=2:duration=first:weights=${1 - backgroundMusic.volume} ${backgroundMusic.volume}[aout]');
+
+      // Trim background music if needed
+      if (backgroundMusic.startTime > 0 || backgroundMusic.endTime > 0) {
+        filters.add(
+            '[1:a]atrim=start=${backgroundMusic.startTime}:end=${backgroundMusic.endTime}[bgm]');
+      }
+    }
 
     // Process text overlays
     for (final overlay in textOverlays) {
@@ -226,7 +256,12 @@ class FFmpegService {
       currentOutput = '[v${filterIndex++}]';
     }
 
-    // If no overlays, pass through
+    // If no overlays but has background music
+    if (filters.isEmpty && backgroundMusic != null) {
+      return '[0:a][1:a]amix=inputs=2:duration=first:weights=1 ${backgroundMusic.volume}[aout]';
+    }
+
+    // If no overlays and no background music
     if (filters.isEmpty) {
       return 'null';
     }
@@ -235,7 +270,10 @@ class FFmpegService {
   }
 
   Future<Map<String, dynamic>> _processVideoUrl(
-      String videoUrl, String command, String projectId) async {
+    String videoUrl,
+    String command,
+    String projectId,
+  ) async {
     try {
       print('Processing video URL: $videoUrl');
       print('FFmpeg command: $command');
@@ -247,6 +285,7 @@ class FFmpegService {
 
       final client = http.Client();
       try {
+        // Increase initial request timeout
         final response = await client
             .post(
           Uri.parse('$_baseUrl/process-url'),
@@ -258,12 +297,11 @@ class FFmpegService {
           }),
         )
             .timeout(
-          const Duration(seconds: 30),
+          const Duration(minutes: 1),
           onTimeout: () {
-            print('Initial request timed out after 30 seconds');
+            print('Initial request timed out after 1 minute');
             client.close();
-            throw TimeoutException(
-                'Initial request timed out after 30 seconds');
+            throw TimeoutException('Initial request timed out after 1 minute');
           },
         );
 
@@ -271,16 +309,42 @@ class FFmpegService {
         print('Response headers: ${response.headers}');
         print('Response body: ${response.body}');
 
-        final jsonResponse = jsonDecode(response.body);
-        print('Parsed response: $jsonResponse');
-
         if (response.statusCode == 401) {
           throw Exception('Unauthorized: Invalid API key');
         }
 
         if (response.statusCode != 200) {
-          print('Error response received: ${jsonResponse['error']}');
-          throw Exception('Failed to process video: ${jsonResponse['error']}');
+          print(
+              'Error response received: ${jsonDecode(response.body)['error']}');
+          throw Exception(
+              'Failed to process video: ${jsonDecode(response.body)['error']}');
+        }
+
+        final jsonResponse = jsonDecode(response.body);
+        print('Parsed response: $jsonResponse');
+
+        // Add retry logic for status checks
+        int retryCount = 0;
+        const maxRetries = 3;
+        const retryDelay = Duration(seconds: 2);
+
+        while (retryCount < maxRetries) {
+          try {
+            final status = await getExportProgress(jsonResponse['jobId']);
+            if (status['status'] == 'failed') {
+              throw Exception(status['error'] ?? 'Video processing failed');
+            }
+            if (status['status'] == 'complete') {
+              return status;
+            }
+            await Future.delayed(retryDelay);
+            retryCount++;
+          } catch (e) {
+            print('Error checking status (attempt ${retryCount + 1}): $e');
+            if (retryCount >= maxRetries - 1) rethrow;
+            await Future.delayed(retryDelay);
+            retryCount++;
+          }
         }
 
         return jsonResponse;
@@ -290,6 +354,15 @@ class FFmpegService {
     } catch (e, stack) {
       print('Error in _processVideoUrl: $e');
       print('Stack trace: $stack');
+
+      // Improve error messages for common issues
+      if (e.toString().contains('Connection closed')) {
+        throw Exception(
+            'Lost connection to server. Please check your internet connection and try again.');
+      } else if (e is TimeoutException) {
+        throw Exception(
+            'Request timed out. The server might be busy, please try again.');
+      }
       rethrow;
     }
   }
@@ -301,13 +374,13 @@ class FFmpegService {
       try {
         final response = await client
             .get(
-          Uri.parse('$_baseUrl/status/$jobId'),
+          Uri.parse('$_baseUrl/progress/$jobId'),
           headers: headers,
         )
             .timeout(
-          const Duration(seconds: 5),
+          const Duration(seconds: 10),
           onTimeout: () {
-            print('Status request timed out after 5 seconds');
+            print('Status request timed out after 10 seconds');
             return http.Response(
               jsonEncode({
                 'status': 'pending',
@@ -345,6 +418,15 @@ class FFmpegService {
     } catch (e, stack) {
       print('Error getting export progress: $e');
       print('Stack trace: $stack');
+
+      // Return a more informative status for connection issues
+      if (e.toString().contains('Connection closed')) {
+        return {
+          'status': 'pending',
+          'error': 'Connection interrupted. Retrying...',
+          'progress': 0.0
+        };
+      }
       return {'status': 'pending', 'error': e.toString(), 'progress': 0.0};
     }
   }

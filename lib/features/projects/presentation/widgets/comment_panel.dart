@@ -63,11 +63,10 @@ class _CommentPanelState extends State<CommentPanel> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 350,
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         border: Border(
-          left: BorderSide(
+          top: BorderSide(
             color: Theme.of(context).colorScheme.outlineVariant,
           ),
         ),

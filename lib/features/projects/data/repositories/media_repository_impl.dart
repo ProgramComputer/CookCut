@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_video_player_plus/cached_video_player_plus.dart';
 import 'package:dartz/dartz.dart';
+import 'dart:developer' as developer;
 
 class MediaRepositoryImpl implements MediaRepository {
   final FirebaseFirestore _firestore;
@@ -161,21 +162,47 @@ class MediaRepositoryImpl implements MediaRepository {
       throw Exception('Media asset not found');
     }
 
-    final storagePath = doc.data()?['storagePath'] as String?;
-    if (storagePath == null) {
-      throw Exception('Storage path not found');
+    final data = doc.data();
+    final metadata = data?['metadata'] as Map<String, dynamic>?;
+
+    // Get storage paths
+    final videoStoragePath = metadata?['storagePath'] as String?;
+    final thumbnailStoragePath = metadata?['thumbnailStoragePath'] as String?;
+
+    if (videoStoragePath == null) {
+      throw Exception('Video storage path not found');
     }
 
-    // Delete from Supabase Storage
-    await _supabase.storage.from('cookcut-media').remove([storagePath]);
+    try {
+      // Delete video from Supabase Storage
+      await _supabase.storage.from('cookcut-media').remove([videoStoragePath]);
 
-    // Delete from Firestore
-    await _firestore
-        .collection('projects')
-        .doc(asset.projectId)
-        .collection('media_assets')
-        .doc(asset.id)
-        .delete();
+      // Delete thumbnail if it exists
+      if (thumbnailStoragePath != null) {
+        try {
+          await _supabase.storage
+              .from('cookcut-media')
+              .remove([thumbnailStoragePath]);
+        } catch (e) {
+          // Log but don't fail if thumbnail deletion fails
+          developer.log(
+            'Failed to delete thumbnail',
+            name: 'MediaRepositoryImpl',
+            error: e,
+          );
+        }
+      }
+
+      // Delete from Firestore
+      await _firestore
+          .collection('projects')
+          .doc(asset.projectId)
+          .collection('media_assets')
+          .doc(asset.id)
+          .delete();
+    } catch (e) {
+      throw Exception('Failed to delete media: ${e.toString()}');
+    }
   }
 
   @override

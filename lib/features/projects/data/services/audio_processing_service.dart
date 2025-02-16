@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:audio_waveforms/audio_waveforms.dart';
@@ -92,13 +93,10 @@ class AudioProcessingService {
   Future<void> _initializeAudioSession() async {
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration(
-      avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+      avAudioSessionCategory: AVAudioSessionCategory.record,
       avAudioSessionCategoryOptions:
           AVAudioSessionCategoryOptions.allowBluetooth,
-      avAudioSessionMode: AVAudioSessionMode.spokenAudio,
-      avAudioSessionRouteSharingPolicy:
-          AVAudioSessionRouteSharingPolicy.defaultPolicy,
-      avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+      avAudioSessionMode: AVAudioSessionMode.measurement,
       androidAudioAttributes: AndroidAudioAttributes(
         contentType: AndroidAudioContentType.speech,
         flags: AndroidAudioFlags.none,
@@ -333,23 +331,34 @@ class AudioProcessingService {
 
   Future<String?> startVoiceOverRecording() async {
     try {
-      final hasPermission = await _recorder.hasPermission();
-      if (!hasPermission) {
-        throw Exception('Microphone permission not granted');
+      String filePath;
+
+      if (kIsWeb) {
+        // For web, we don't need a file path as the recording will be handled in memory
+        filePath = 'recording_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      } else {
+        final directory = await getTemporaryDirectory();
+        filePath =
+            '${directory.path}/voiceover_${DateTime.now().millisecondsSinceEpoch}.m4a';
       }
 
-      final directory = await getTemporaryDirectory();
-      final filePath =
-          '${directory.path}/voiceover_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      // Initialize recorder if not already initialized
+      if (!await _recorder.isRecording()) {
+        final hasPermission = await _recorder.hasPermission();
+        if (!hasPermission) {
+          throw Exception('Microphone permission not granted');
+        }
 
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 128000,
-          sampleRate: 44100,
-        ),
-        path: filePath,
-      );
+        await _recorder.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            bitRate: 96000,
+            sampleRate: 44100,
+            numChannels: 1,
+          ),
+          path: filePath,
+        );
+      }
 
       return filePath;
     } catch (e) {
@@ -360,7 +369,9 @@ class AudioProcessingService {
 
   Future<void> stopVoiceOverRecording() async {
     try {
-      await _recorder.stop();
+      if (await _recorder.isRecording()) {
+        await _recorder.stop();
+      }
     } catch (e) {
       print('Error stopping voice-over recording: $e');
     }

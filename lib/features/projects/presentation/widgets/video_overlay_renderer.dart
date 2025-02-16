@@ -11,6 +11,10 @@ class VideoOverlayRenderer extends StatelessWidget {
   final bool isEditing;
   final Function(TextOverlay, Offset)? onTextDragEnd;
   final Function(TimerOverlay, Offset)? onTimerDragEnd;
+  final TextOverlay? selectedTextOverlay;
+  final TimerOverlay? selectedTimerOverlay;
+  final Function(TextOverlay)? onTextSelected;
+  final Function(TimerOverlay)? onTimerSelected;
 
   const VideoOverlayRenderer({
     Key? key,
@@ -22,55 +26,85 @@ class VideoOverlayRenderer extends StatelessWidget {
     this.isEditing = false,
     this.onTextDragEnd,
     this.onTimerDragEnd,
+    this.selectedTextOverlay,
+    this.selectedTimerOverlay,
+    this.onTextSelected,
+    this.onTimerSelected,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    print('[DEBUG] Building VideoOverlayRenderer');
+    print('[DEBUG] Text overlays: ${textOverlays.length}');
+    print('[DEBUG] Timer overlays: ${timerOverlays.length}');
+    print('[DEBUG] Current time: $currentTime');
+
+    final visibleTextOverlays = textOverlays
+        .where((overlay) =>
+            currentTime >= overlay.startTime && currentTime <= overlay.endTime)
+        .toList();
+
+    final visibleTimerOverlays = timerOverlays
+        .where((overlay) =>
+            currentTime >= overlay.startTime && currentTime <= overlay.endTime)
+        .toList();
+
+    print('[DEBUG] Visible text overlays: ${visibleTextOverlays.length}');
+    print('[DEBUG] Visible timer overlays: ${visibleTimerOverlays.length}');
+
     return Stack(
       children: [
-        ...textOverlays
-            .where((overlay) =>
-                currentTime >= overlay.startTime &&
-                currentTime <= overlay.endTime)
-            .map((overlay) => _buildTextOverlay(overlay)),
-        ...timerOverlays
-            .where((overlay) =>
-                currentTime >= overlay.startTime &&
-                currentTime <= overlay.endTime)
-            .map((overlay) => _buildTimerOverlay(overlay)),
+        ...visibleTextOverlays.map((overlay) => _buildTextOverlay(overlay)),
+        ...visibleTimerOverlays.map((overlay) => _buildTimerOverlay(overlay)),
       ],
     );
   }
 
   Widget _buildTextOverlay(TextOverlay overlay) {
+    final isSelected = selectedTextOverlay?.id == overlay.id;
+
     return Positioned(
       left: overlay.x * videoWidth,
       top: overlay.y * videoHeight,
-      child: isEditing
-          ? Builder(
-              builder: (context) => Draggable<TextOverlay>(
-                feedback: _TextOverlayWidget(overlay: overlay),
-                childWhenDragging: Opacity(
-                  opacity: 0.3,
-                  child: _TextOverlayWidget(overlay: overlay),
-                ),
-                child: _TextOverlayWidget(overlay: overlay),
-                onDragEnd: (details) {
-                  if (onTextDragEnd != null) {
-                    final RenderBox box = context.findRenderObject() as RenderBox;
-                    final localPosition = box.globalToLocal(details.offset);
-                    onTextDragEnd!(
-                      overlay,
-                      Offset(
-                        localPosition.dx / videoWidth,
-                        localPosition.dy / videoHeight,
-                      ),
-                    );
-                  }
-                },
-              ),
-            )
-          : _TextOverlayWidget(overlay: overlay),
+      child: GestureDetector(
+        onTap: isEditing && onTextSelected != null
+            ? () => onTextSelected!(overlay)
+            : null,
+        child: Container(
+          decoration: isSelected
+              ? BoxDecoration(
+                  border: Border.all(color: Colors.blue, width: 2),
+                  borderRadius: BorderRadius.circular(4),
+                )
+              : null,
+          child: isEditing
+              ? Builder(
+                  builder: (context) => Draggable<TextOverlay>(
+                    feedback: _TextOverlayWidget(overlay: overlay),
+                    childWhenDragging: Opacity(
+                      opacity: 0.3,
+                      child: _TextOverlayWidget(overlay: overlay),
+                    ),
+                    child: _TextOverlayWidget(overlay: overlay),
+                    onDragEnd: (details) {
+                      if (onTextDragEnd != null) {
+                        final RenderBox box =
+                            context.findRenderObject() as RenderBox;
+                        final localPosition = box.globalToLocal(details.offset);
+                        onTextDragEnd!(
+                          overlay,
+                          Offset(
+                            localPosition.dx / videoWidth,
+                            localPosition.dy / videoHeight,
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                )
+              : _TextOverlayWidget(overlay: overlay),
+        ),
+      ),
     );
   }
 
@@ -80,46 +114,62 @@ class VideoOverlayRenderer extends StatelessWidget {
             .ceil()
             .clamp(0, overlay.durationSeconds);
 
+    final isSelected = selectedTimerOverlay?.id == overlay.id;
+
     return Positioned(
       left: overlay.x * videoWidth,
       top: overlay.y * videoHeight,
-      child: isEditing
-          ? Builder(
-              builder: (context) => Draggable<TimerOverlay>(
-                feedback: _TimerOverlayWidget(
-                  overlay: overlay,
-                  remainingSeconds: remainingSeconds,
-                ),
-                childWhenDragging: Opacity(
-                  opacity: 0.3,
-                  child: _TimerOverlayWidget(
-                    overlay: overlay,
-                    remainingSeconds: remainingSeconds,
-                  ),
-                ),
-                child: _TimerOverlayWidget(
-                  overlay: overlay,
-                  remainingSeconds: remainingSeconds,
-                ),
-                onDragEnd: (details) {
-                  if (onTimerDragEnd != null) {
-                    final RenderBox box = context.findRenderObject() as RenderBox;
-                    final localPosition = box.globalToLocal(details.offset);
-                    onTimerDragEnd!(
-                      overlay,
-                      Offset(
-                        localPosition.dx / videoWidth,
-                        localPosition.dy / videoHeight,
+      child: GestureDetector(
+        onTap: isEditing && onTimerSelected != null
+            ? () => onTimerSelected!(overlay)
+            : null,
+        child: Container(
+          decoration: isSelected
+              ? BoxDecoration(
+                  border: Border.all(color: Colors.blue, width: 2),
+                  borderRadius: BorderRadius.circular(4),
+                )
+              : null,
+          child: isEditing
+              ? Builder(
+                  builder: (context) => Draggable<TimerOverlay>(
+                    feedback: _TimerOverlayWidget(
+                      overlay: overlay,
+                      remainingSeconds: remainingSeconds,
+                    ),
+                    childWhenDragging: Opacity(
+                      opacity: 0.3,
+                      child: _TimerOverlayWidget(
+                        overlay: overlay,
+                        remainingSeconds: remainingSeconds,
                       ),
-                    );
-                  }
-                },
-              ),
-            )
-          : _TimerOverlayWidget(
-              overlay: overlay,
-              remainingSeconds: remainingSeconds,
-            ),
+                    ),
+                    child: _TimerOverlayWidget(
+                      overlay: overlay,
+                      remainingSeconds: remainingSeconds,
+                    ),
+                    onDragEnd: (details) {
+                      if (onTimerDragEnd != null) {
+                        final RenderBox box =
+                            context.findRenderObject() as RenderBox;
+                        final localPosition = box.globalToLocal(details.offset);
+                        onTimerDragEnd!(
+                          overlay,
+                          Offset(
+                            localPosition.dx / videoWidth,
+                            localPosition.dy / videoHeight,
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                )
+              : _TimerOverlayWidget(
+                  overlay: overlay,
+                  remainingSeconds: remainingSeconds,
+                ),
+        ),
+      ),
     );
   }
 }

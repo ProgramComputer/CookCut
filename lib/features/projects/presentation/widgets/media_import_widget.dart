@@ -6,16 +6,19 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'dart:developer' as developer;
 import '../bloc/media_bloc.dart';
 import '../../domain/entities/media_asset.dart';
+import '../../domain/entities/project.dart';
 import 'package:image_picker/image_picker.dart';
 import 'audio_recording_dialog.dart';
-import 'generate_recipe_video_dialog.dart';
+import 'generate_stock_video_dialog.dart';
 
 class MediaImportWidget extends StatefulWidget {
   final String projectId;
+  final Project project;
 
   const MediaImportWidget({
     super.key,
     required this.projectId,
+    required this.project,
   });
 
   @override
@@ -160,13 +163,16 @@ class _MediaImportWidgetState extends State<MediaImportWidget> {
   void _showGenerateVideoDialog() {
     showDialog(
       context: context,
-      builder: (context) => GenerateRecipeVideoDialog(
-        projectId: widget.projectId,
-        onVideoGenerated: (mediaAsset) {
-          context.read<MediaBloc>().add(
-                AddGeneratedMedia(mediaAsset),
-              );
-        },
+      builder: (dialogContext) => BlocProvider.value(
+        value: context.read<MediaBloc>(),
+        child: GenerateStockVideoDialog(
+          project: widget.project,
+          onVideoGenerated: (mediaAsset) {
+            context.read<MediaBloc>().add(
+                  AddGeneratedMedia(mediaAsset),
+                );
+          },
+        ),
       ),
     );
   }
@@ -248,24 +254,28 @@ class _MediaImportWidgetState extends State<MediaImportWidget> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       FloatingActionButton.extended(
+                        heroTag: 'import_media',
                         onPressed: _importMedia,
                         icon: const Icon(Icons.add),
                         label: const Text('Import Media'),
                       ),
-                      const SizedBox(width: 16),
                       FloatingActionButton(
+                        heroTag: 'record_media',
                         onPressed: _showRecordingOptions,
                         child: const Icon(Icons.fiber_manual_record),
                       ),
-                      const SizedBox(width: 16),
                       FloatingActionButton.extended(
+                        heroTag: 'generate_video',
                         onPressed: _showGenerateVideoDialog,
                         icon: const Icon(Icons.auto_awesome),
-                        label: const Text('Generate Recipe Video'),
+                        label: const Text('Generate Stock Video'),
                       ),
                     ],
                   ),

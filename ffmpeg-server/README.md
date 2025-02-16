@@ -40,7 +40,7 @@ Content-Type: application/json
 
 ### Check Status
 ```bash
-GET /status/:jobId
+GET /output/:jobId
 ```
 
 ## Example Usage
@@ -52,5 +52,5 @@ curl -X POST http://your-server/process \
   -d '{"command": "ffmpeg -i input.mp4 -ss 00:00:00 -t 00:00:10 -c copy output.mp4"}'
 
 # Check status
-curl http://your-server/status/[jobId]
+curl http://your-server/output/[jobId]
 ``` 

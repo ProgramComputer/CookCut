@@ -50,7 +50,7 @@ void main() {
 
       while (!isComplete && attempts < maxAttempts) {
         final statusResponse = await http.get(
-          Uri.parse('$baseUrl/status/$jobId'),
+          Uri.parse('$baseUrl/progress/$jobId'),
         );
 
         final status = jsonDecode(statusResponse.body);

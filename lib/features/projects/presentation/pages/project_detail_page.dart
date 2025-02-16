@@ -28,6 +28,7 @@ import '../../domain/repositories/analytics_repository.dart';
 import '../../data/repositories/analytics_repository_impl.dart';
 import '../bloc/projects_bloc.dart';
 import '../../data/repositories/project_repository_impl.dart';
+import '../widgets/ai_chat_interface.dart';
 
 class ProjectDetailPage extends StatelessWidget {
   final String projectId;
@@ -110,6 +111,32 @@ class ProjectDetailPage extends StatelessWidget {
       builder: (dialogContext) => BlocProvider.value(
         value: projectsBloc,
         child: EditProjectDialog(project: project),
+      ),
+    );
+  }
+
+  void _showChatInterface(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useRootNavigator: true,
+      enableDrag: true,
+      isDismissible: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        snap: true,
+        snapSizes: const [0.6, 0.9],
+        builder: (context, scrollController) => AIChatInterface(
+          projectId: projectId,
+          onClose: () => Navigator.of(context).pop(),
+          onTimestampTap: (timestamp) {
+            // Handle project-wide timestamp navigation
+            // This could open the relevant media asset at the specified timestamp
+          },
+        ),
       ),
     );
   }
@@ -395,6 +422,23 @@ class ProjectDetailPage extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            floatingActionButton: Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                FloatingActionButton(
+                  heroTag: 'chat_fab',
+                  onPressed: () => _showChatInterface(context),
+                  child: const Icon(Icons.chat),
+                ),
+                const SizedBox(height: 16),
+                // Commenting out duplicate Import Media button
+                // FloatingActionButton(
+                //   heroTag: 'upload_fab',
+                //   onPressed: () => _showUploadDialog(context),
+                //   child: const Icon(Icons.add),
+                // ),
+              ],
             ),
           ),
         ),

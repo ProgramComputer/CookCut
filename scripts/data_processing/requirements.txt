@@ -1,0 +1,8 @@
+datasets
+openai
+pinecone-client
+numpy
+tqdm
+python-dotenv
+aiohttp
+httpx

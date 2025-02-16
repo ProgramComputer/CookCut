@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'dart:isolate';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class VideoTrimWidget extends StatefulWidget {
   final MediaAsset mediaAsset;
@@ -82,48 +83,81 @@ class _VideoTrimWidgetState extends State<VideoTrimWidget>
       final completer = Completer<void>();
 
       // Listen for messages from the isolate
-      receivePort.listen((dynamic message) {
+      receivePort.listen((dynamic message) async {
         print('Received message from isolate: $message');
 
         if (message is Map<String, dynamic>) {
           if (mounted) {
-            setState(() {
-              final currentStatus = message['status'] as String? ?? 'unknown';
-              print('Processing status update: $currentStatus');
+            final currentStatus = message['status'] as String? ?? 'unknown';
+            print('Processing status update: $currentStatus');
 
-              switch (currentStatus) {
-                case 'starting':
+            switch (currentStatus) {
+              case 'starting':
+                setState(() {
                   _exportProgress = 0.0;
-                  break;
-                case 'downloading':
-                  final downloadProgress = message['downloadProgress'] as num?;
+                });
+                break;
+              case 'downloading':
+                final downloadProgress = message['downloadProgress'] as num?;
+                setState(() {
                   _exportProgress =
                       (downloadProgress?.toDouble() ?? 0.0).clamp(0.0, 100.0) /
                           100.0;
-                  break;
-                case 'processing':
-                  final progress = message['progress'] as num?;
+                });
+                break;
+              case 'processing':
+                final progress = message['progress'] as num?;
+                setState(() {
                   final normalizedProgress =
                       (progress?.toDouble() ?? 0.0).clamp(0.0, 100.0) / 100.0;
                   _exportProgress = normalizedProgress;
-                  break;
-                case 'complete':
+                });
+                break;
+              case 'complete':
+                setState(() {
                   _exportProgress = 1.0;
-                  final outputUrl = message['url'] as String?;
-                  if (outputUrl != null) {
+                });
+                final outputUrl = message['url'] as String?;
+                if (outputUrl != null) {
+                  try {
+                    // Update the MediaAsset in Firestore
+                    await FirebaseFirestore.instance
+                        .collection('projects')
+                        .doc(widget.mediaAsset.projectId)
+                        .collection('media_assets')
+                        .doc(widget.mediaAsset.id)
+                        .update({
+                      'fileUrl': outputUrl,
+                      'updatedAt': FieldValue.serverTimestamp(),
+                      'status': 'ready',
+                    });
+
                     widget.onTrimComplete(outputUrl);
-                    Navigator.of(context).pop();
+                    if (mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  } catch (e) {
+                    print('Error updating MediaAsset: $e');
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content:
+                              Text('Error updating video: ${e.toString()}'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
                   }
-                  completer.complete();
-                  break;
-                case 'failed':
-                  final error =
-                      message['error'] as String? ?? 'Processing failed';
-                  print('Processing failed: $error');
-                  completer.completeError(Exception(error));
-                  break;
-              }
-            });
+                }
+                completer.complete();
+                break;
+              case 'failed':
+                final error =
+                    message['error'] as String? ?? 'Processing failed';
+                print('Processing failed: $error');
+                completer.completeError(Exception(error));
+                break;
+            }
           }
         } else if (message is String && message == 'done') {
           print('Isolate signaled completion');

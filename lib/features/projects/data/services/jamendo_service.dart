@@ -129,25 +129,38 @@ class JamendoService {
 
   Future<void> _cacheAudioFile(String trackId, String url) async {
     try {
+      print('[JamendoService] Starting to cache audio file for track $trackId');
       final cacheDir = await _getCacheDirectory();
       final fileName = 'track_$trackId.mp3';
       final filePath = path.join(cacheDir, fileName);
 
       if (!await File(filePath).exists()) {
+        print('[JamendoService] File not in cache, downloading from: $url');
         final response = await _client.get(Uri.parse(url));
         if (response.statusCode == 200) {
+          print(
+              '[JamendoService] Download successful, writing to cache: $filePath');
           await File(filePath).writeAsBytes(response.bodyBytes);
           _audioFileCache[trackId] = filePath;
+          print(
+              '[JamendoService] Successfully cached audio file for track $trackId');
+        } else {
+          print(
+              '[JamendoService] Failed to download file: HTTP ${response.statusCode}');
         }
       } else {
+        print('[JamendoService] File already in cache: $filePath');
         _audioFileCache[trackId] = filePath;
       }
-    } catch (e) {
-      print('Error caching audio file: $e');
+    } catch (e, stackTrace) {
+      print('[JamendoService] Error caching audio file for track $trackId:');
+      print('[JamendoService] Error: $e');
+      print('[JamendoService] Stack trace: $stackTrace');
     }
   }
 
   void dispose() {
+    print('[JamendoService] Disposing service and closing HTTP client');
     _client.close();
   }
 
@@ -157,17 +170,24 @@ class JamendoService {
     int limit = 20,
     int offset = 0,
   }) async {
+    print(
+        '[JamendoService] Searching music with query: "$query", tags: ${tags ?? 'none'}, limit: $limit, offset: $offset');
+
     // Check cache first
     final cacheKey = '${query}_${tags ?? ''}_${limit}_${offset}';
     if (_searchCache.containsKey(cacheKey)) {
       final cacheTimestamp = _searchCacheTimestamp[cacheKey];
       if (cacheTimestamp != null &&
           DateTime.now().difference(cacheTimestamp) < _cacheDuration) {
+        print('[JamendoService] Returning cached results for key: $cacheKey');
         return _searchCache[cacheKey]!;
       }
+      print('[JamendoService] Cache expired for key: $cacheKey');
     }
 
     if (_apiKey == null) {
+      print(
+          '[JamendoService] ERROR: API key not found in environment variables');
       throw Exception('Jamendo API key not found in environment variables');
     }
 
@@ -191,84 +211,106 @@ class JamendoService {
     try {
       final uri =
           Uri.parse('$_baseUrl/tracks/').replace(queryParameters: queryParams);
-      print('Requesting Jamendo API: ${uri.toString()}');
+      print(
+          '[JamendoService] Making API request to: ${uri.toString().replaceAll(_apiKey!, '[REDACTED]')}');
 
       final response = await _client.get(uri);
-      print('Response status: ${response.statusCode}');
-      print('Response body: ${response.body}');
+      print('[JamendoService] Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['results'] == null) {
-          print('API Response: ${response.body}'); // For debugging
+          print('[JamendoService] No results found in API response');
+          print('[JamendoService] Response body: ${response.body}');
           return [];
         }
+
         final results = data['results'] as List;
+        print(
+            '[JamendoService] Found ${results.length} tracks in API response');
+
         final tracks = results
             .map((track) {
               final jamendoTrack = JamendoMusic.fromJson(track);
-              print('Track ${jamendoTrack.id} - ${jamendoTrack.name}:');
-              print('  Audio URL: ${jamendoTrack.audioUrl}');
-              print('  Is Streamable: ${jamendoTrack.isStreamable}');
+              print(
+                  '[JamendoService] Processing track ${jamendoTrack.id} - ${jamendoTrack.name}:');
+              print('[JamendoService]   - Artist: ${jamendoTrack.artist}');
+              print('[JamendoService]   - Duration: ${jamendoTrack.duration}');
+              print(
+                  '[JamendoService]   - Is Streamable: ${jamendoTrack.isStreamable}');
+              print(
+                  '[JamendoService]   - Download Allowed: ${jamendoTrack.audiodownloadAllowed}');
               return jamendoTrack;
             })
             .where((track) => track.isStreamable)
             .toList();
 
-        if (tracks.isEmpty) {
-          print('No streamable tracks found in response');
-          print('Total tracks before filtering: ${results.length}');
-        }
+        print(
+            '[JamendoService] Filtered to ${tracks.length} streamable tracks');
 
         // Cache the results before returning
         _searchCache[cacheKey] = tracks;
         _searchCacheTimestamp[cacheKey] = DateTime.now();
+        print('[JamendoService] Results cached with key: $cacheKey');
 
         // Start caching audio files in the background
+        print('[JamendoService] Starting background caching of audio files');
         for (final track in tracks) {
           _cacheAudioFile(track.id, track.audioUrl);
         }
 
         return tracks;
       } else {
-        print('API Error Response: ${response.body}'); // For debugging
+        print('[JamendoService] API Error Response: ${response.body}');
         throw Exception('Error searching music: ${response.statusCode}');
       }
-    } catch (e) {
-      print('Exception during API call: $e'); // For debugging
+    } catch (e, stackTrace) {
+      print('[JamendoService] Exception during API call:');
+      print('[JamendoService] Error: $e');
+      print('[JamendoService] Stack trace: $stackTrace');
       throw Exception('Error searching music: $e');
     }
   }
 
   String _extractJamendoTrackId(String url) {
+    print('[JamendoService] Extracting track ID from URL: $url');
     try {
       final uri = Uri.parse(url);
 
       // First try to get trackid from query parameters
       String? trackId = uri.queryParameters['trackid'];
+      if (trackId != null) {
+        print('[JamendoService] Found track ID in query parameters: $trackId');
+        return trackId;
+      }
 
       // If not found, try format=mp31&from=app-devsite pattern
-      if (trackId == null && uri.queryParameters['format'] == 'mp31') {
+      if (uri.queryParameters['format'] == 'mp31') {
         trackId = uri.queryParameters['trackid'];
+        if (trackId != null) {
+          print(
+              '[JamendoService] Found track ID in mp31 format parameters: $trackId');
+          return trackId;
+        }
       }
 
       // If still not found, try the path segments
-      if (trackId == null) {
-        // Look for numeric segment in the path
-        trackId = uri.pathSegments.lastWhere(
-            (segment) => int.tryParse(segment) != null,
-            orElse: () => '');
+      trackId = uri.pathSegments.lastWhere(
+        (segment) => int.tryParse(segment) != null,
+        orElse: () => '',
+      );
+
+      if (trackId.isNotEmpty) {
+        print('[JamendoService] Found track ID in path segments: $trackId');
+        return trackId;
       }
 
-      if (trackId == null || trackId.isEmpty) {
-        print('Failed to extract track ID from URL: $url');
-        throw Exception('Invalid Jamendo URL format');
-      }
-
-      print('Successfully extracted track ID: $trackId from URL: $url');
-      return trackId;
-    } catch (e) {
-      print('Error parsing Jamendo URL: $url - Error: $e');
+      print('[JamendoService] Failed to extract track ID from URL');
+      throw Exception('Invalid Jamendo URL format');
+    } catch (e, stackTrace) {
+      print('[JamendoService] Error parsing Jamendo URL:');
+      print('[JamendoService] Error: $e');
+      print('[JamendoService] Stack trace: $stackTrace');
       throw Exception('Invalid Jamendo URL: $e');
     }
   }

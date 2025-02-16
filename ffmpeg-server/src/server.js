@@ -14,15 +14,23 @@ const openai = new OpenAI();
 const os = require('os');
 const { OpenAI: LangChainOpenAI } = require('@langchain/openai');
 const { ChatOpenAI } = require('@langchain/openai');
-const { StringOutputParser } = require('langchain/schema/output_parser');
-const { RunnableSequence } = require('langchain/schema/runnable');
-const { LangChainTracer, ConsoleCallbackHandler } = require('langchain/callbacks');
+const { RunnableSequence } = require('@langchain/core/runnables');
+const { LangChainTracer } = require('@langchain/core/callbacks/base');
 const { Client } = require('langsmith');
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 const fetch = require('node-fetch');
 const ffmpeg = require('fluent-ffmpeg');
 const { HumanMessage, SystemMessage } = require('@langchain/core/messages');
+const { ConsoleCallbackHandler } = require('@langchain/core/tracers/console');
+const { generateCombinedAnalysis, downloadVideo } = require('./services/recipe-assistant');
+
+// Initialize chat model for recipe assistant
+const chatModel = new ChatOpenAI({
+    modelName: "gpt-4o-mini",
+    temperature: 0.3,
+    callbacks: [new ConsoleCallbackHandler()]
+});
 
 // Add Swagger configuration
 const swaggerOptions = {
@@ -137,19 +145,120 @@ app.use(cors({
 
 // API key validation middleware
 const validateApiKey = (req, res, next) => {
+    const requestId = uuidv4();
+    // console.log('\n=== Security Alert: API Key Validation ===');
+    // console.log('Request ID:', requestId);
+    // console.log('Timestamp:', new Date().toISOString());
+    // console.log('Request Details:', {
+    //     url: req.url,
+    //     method: req.method,
+    //     ip: req.ip,
+    //     realIP: req.headers['x-real-ip'] || req.headers['x-forwarded-for'],
+    //     userAgent: req.headers['user-agent'],
+    //     referer: req.headers['referer'],
+    //     origin: req.headers['origin']
+    // });
+    
     const apiKey = req.headers['x-api-key'] || req.query.api_key;
     
-    console.log('Received request with API key:', apiKey ? 'Present' : 'Missing');
+    // Sanitize headers for logging
+    const sanitizedHeaders = { ...req.headers };
+    if (apiKey) {
+        sanitizedHeaders['x-api-key'] = 'REDACTED';
+    }
+    console.log('Request Headers:', JSON.stringify(sanitizedHeaders, null, 2));
     
     if (!apiKey || apiKey !== API_KEY) {
-        console.warn('Invalid or missing API key from:', req.ip);
+        const securityAlert = {
+            requestId,
+            timestamp: new Date().toISOString(),
+            type: 'UNAUTHORIZED_ACCESS',
+            severity: 'WARNING',
+            details: {
+                hasKey: !!apiKey,
+                matches: apiKey === API_KEY,
+                clientIP: req.ip,
+                realIP: req.headers['x-real-ip'] || req.headers['x-forwarded-for'],
+                userAgent: req.headers['user-agent'],
+                path: req.path,
+                method: req.method
+            },
+            knownScanner: isKnownScanner(req.headers['user-agent'])
+        };
+        
+      //  console.warn('Security Alert - Unauthorized Access Attempt:', securityAlert);
+        
+        // Return a generic error for security
         return res.status(401).json({ 
-            error: 'Unauthorized: Invalid or missing API key',
-            requestId: uuidv4() // Add request ID for tracking
+            error: 'Unauthorized',
+            requestId
         });
     }
+
+    console.log('API Key Validation: Success');
+    console.log('Request ID:', requestId);
     next();
 };
+
+// Helper function to identify known scanning services
+const isKnownScanner = (userAgent = '') => {
+    const knownScanners = [
+        'censys',
+        'zgrab',
+        'nmap',
+        'masscan',
+        'nikto',
+        'qualys',
+        'burp',
+        'acunetix',
+        'nessus'
+    ];
+    
+    userAgent = userAgent.toLowerCase();
+    return knownScanners.some(scanner => userAgent.includes(scanner));
+};
+
+// Rate limiting for failed auth attempts
+const rateLimit = {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100 // limit each IP to 100 requests per windowMs
+};
+
+// Apply rate limiting to all routes
+app.use((req, res, next) => {
+    const clientIP = req.ip;
+    const now = Date.now();
+    
+    if (!global.rateLimitStore) {
+        global.rateLimitStore = new Map();
+    }
+    
+    const store = global.rateLimitStore;
+    const clientData = store.get(clientIP) || { count: 0, resetTime: now + rateLimit.windowMs };
+    
+    // Reset count if window has expired
+    if (now > clientData.resetTime) {
+        clientData.count = 0;
+        clientData.resetTime = now + rateLimit.windowMs;
+    }
+    
+    clientData.count++;
+    store.set(clientIP, clientData);
+    
+    if (clientData.count > rateLimit.max) {
+        console.warn('Rate limit exceeded:', {
+            clientIP,
+            count: clientData.count,
+            resetTime: new Date(clientData.resetTime).toISOString()
+        });
+        return res.status(429).json({
+            error: 'Too many requests',
+            retryAfter: Math.ceil((clientData.resetTime - now) / 1000)
+        });
+    }
+    
+    next();
+});
 
 // Apply API key validation to all routes except health check and swagger docs
 app.use((req, res, next) => {
@@ -157,6 +266,15 @@ app.use((req, res, next) => {
         return next();
     }
     validateApiKey(req, res, next);
+});
+
+// Add security headers
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
 });
 
 // Add an endpoint to verify API key
@@ -232,7 +350,7 @@ async function getVideoDuration(filePath) {
 function cleanupOldFiles() {
     const oneHourAgo = Date.now() - (60 * 60 * 1000);
     
-    ['uploads', 'output'].forEach(dir => {
+    ['uploads', 'output', 'frames'].forEach(dir => {
         const dirPath = `/tmp/ffmpeg/${dir}`;
         fs.readdir(dirPath, (err, files) => {
             if (err) return;
@@ -372,6 +490,13 @@ app.post('/upload-and-process', upload.single('video'), async (req, res) => {
     res.json({ jobId, status: 'processing' });
 });
 
+// Add at the top with other requires
+const keepAliveAgent = new http.Agent({
+    keepAlive: true,
+    keepAliveMsecs: 3000,
+    maxSockets: 100
+});
+
 // Modify the process-url endpoint to use Supabase
 app.post('/process-url', express.json(), async (req, res) => {
     const { videoUrl, command, projectId } = req.body;
@@ -423,6 +548,7 @@ app.post('/process-url', express.json(), async (req, res) => {
         .replace(/\s+/g, ' ')          // Normalize spaces
         .replace('input.mp4', 'pipe:0')
         .replace('output.mp4', outputPath)
+        .replace(/-filter_complex\s+"null"\s+/, ' ')  // Remove null filter if present
         .trim();                       // Remove any trailing spaces
     
     console.log(`Processing job ${jobId} with command: ${parsedCommand}`);
@@ -596,6 +722,32 @@ app.get('/output/:jobId', async (req, res) => {
 
     // Redirect to the Supabase storage URL
     res.redirect(jobStatus.output_url);
+});
+
+// Get job progress
+app.get('/progress/:jobId', async (req, res) => {
+    // Get job status from Supabase
+    const { data: jobStatus, error } = await supabase
+        .from('video_jobs')
+        .select('*')
+        .eq('id', req.params.jobId)
+        .single();
+
+    if (error) {
+        return res.status(500).json({ error: 'Failed to fetch job status' });
+    }
+
+    if (!jobStatus) {
+        return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Return job status
+    res.json({
+        status: jobStatus.status,
+        progress: jobStatus.progress,
+        error: jobStatus.error,
+        output_url: jobStatus.output_url
+    });
 });
 
 // Add recipe analysis endpoint
@@ -952,6 +1104,179 @@ function chunks(array, size) {
     result.push(array.slice(i, i + size));
   }
   return result;
+}
+
+/**
+ * @swagger
+ * /recipe-assistant:
+ *   post:
+ *     summary: Get comprehensive recipe and video analysis with suggestions
+ *     tags: [RecipeAssistant]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               query:
+ *                 type: string
+ *                 description: User's question or request
+ *               projectId:
+ *                 type: string
+ *                 description: Current project  ID
+ *               recipeData:
+ *                 type: object
+ *                 description: Current recipe information
+ *     responses:
+ *       200:
+ *         description: Successful analysis
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+app.post('/recipe-assistant', async (req, res) => {
+    const requestId = uuidv4();
+    console.log(`\n=== Recipe Assistant Request [${requestId}] START ===`);
+    console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Request Body:', JSON.stringify({
+        query: req.body.query,
+        projectId: req.body.projectId,
+        hasRecipeData: !!req.body.recipeData
+    }, null, 2));
+    
+    try {
+        const { query, projectId, recipeData } = req.body;
+
+        // Input validation
+        if (!query || !projectId || !recipeData) {
+            console.log(`[${requestId}] Validation Failed:`, {
+                hasQuery: !!query,
+                hasProjectId: !!projectId,
+                hasRecipeData: !!recipeData
+            });
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required fields',
+                response: "I'm sorry, but I need more information to help you. Could you please provide your question and recipe details?",
+                mediaAnalyses: [],
+                recipeAnalysis: {
+                    suggestedEnhancements: []
+                },
+                futureSuggestions: {
+                    contentIdeas: []
+                }
+            });
+        }
+
+        console.log(`[${requestId}] Fetching media assets for project:`, projectId);
+        // Get all media assets for the project
+        const { data: mediaAssets, error: mediaError } = await supabase
+            .storage
+            .from('cookcut-media')
+            .list(`media/${projectId}/raw`);
+
+        if (mediaError) {
+            console.error(`[${requestId}] Supabase media fetch error:`, mediaError);
+            throw mediaError;
+        }
+
+        console.log(`[${requestId}] Found ${mediaAssets?.length || 0} media assets`);
+        console.log(`[${requestId}] Calling generateCombinedAnalysis...`);
+        
+        const response = await generateCombinedAnalysis(query, null, {
+            projectId,
+            ...recipeData
+        });
+
+        console.log(`[${requestId}] Analysis complete, preparing response...`);
+        console.log(`[${requestId}] Response structure:`, {
+            hasResponse: !!response?.response,
+            hasCommands: !!response?.videoCommands?.length,
+            mediaAnalysesCount: response?.mediaAnalyses?.length,
+            hasEnhancements: !!response?.recipeAnalysis?.suggestedEnhancements?.length
+        });
+
+        console.log(`[${requestId}] Sending response to client...`);
+        res.json(response);
+        console.log(`\n=== Recipe Assistant Request [${requestId}] END ===`);
+    } catch (error) {
+        console.error(`[${requestId}] Error in recipe-assistant:`, error);
+        console.error(`[${requestId}] Error stack:`, error.stack);
+        res.status(500).json({
+            success: false,
+            error: 'An error occurred while processing your request',
+            response: "I apologize, but I encountered an error while processing your request. Please try again.",
+            mediaAnalyses: [],
+            recipeAnalysis: {
+                suggestedEnhancements: []
+            },
+            futureSuggestions: {
+                contentIdeas: []
+            }
+        });
+        console.log(`\n=== Recipe Assistant Request [${requestId}] ERROR END ===`);
+    }
+});
+
+// Add audio analysis function
+async function analyzeAudio(audioPath) {
+    return new Promise((resolve, reject) => {
+        ffmpeg(audioPath)
+            .audioFrequency(44100)
+            .audioChannels(2)
+            .audioFilters([
+                'showwavespic=s=640x120',  // Generate waveform
+                'astats',                   // Audio statistics
+                'silencedetect=n=-50dB:d=1' // Detect silence
+            ])
+            .on('end', (stdout, stderr) => {
+                // Parse ffmpeg output for audio analysis
+                const analysis = {
+                    waveform: 'waveform.png',
+                    segments: parseAudioSegments(stderr),
+                    statistics: parseAudioStats(stderr)
+                };
+                resolve(analysis);
+            })
+            .on('error', reject)
+            .save('/tmp/ffmpeg/analysis/waveform.png');
+    });
+}
+
+function parseAudioSegments(ffmpegOutput) {
+    const segments = [];
+    const silenceRegex = /silence_start: (\d+\.\d+)|silence_end: (\d+\.\d+)/g;
+    let match;
+    let currentSegment = {};
+
+    while ((match = silenceRegex.exec(ffmpegOutput)) !== null) {
+        if (match[1]) { // silence_start
+            currentSegment.start = parseFloat(match[1]);
+        } else if (match[2]) { // silence_end
+            currentSegment.end = parseFloat(match[2]);
+            currentSegment.duration = currentSegment.end - currentSegment.start;
+            segments.push({ ...currentSegment });
+            currentSegment = {};
+        }
+    }
+
+    return segments;
+}
+
+function parseAudioStats(ffmpegOutput) {
+    const stats = {};
+    const statsRegex = /([a-zA-Z_]+):\s+([\d.-]+)/g;
+    let match;
+
+    while ((match = statsRegex.exec(ffmpegOutput)) !== null) {
+        stats[match[1]] = parseFloat(match[2]);
+    }
+
+    return stats;
 }
 
 const port = 3000;

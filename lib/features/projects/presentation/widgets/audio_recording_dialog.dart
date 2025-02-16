@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:audio_waveforms/audio_waveforms.dart';
-import 'package:permission_handler/permission_handler.dart';
+import '../../../../core/utils/permission_manager.dart';
 import '../../data/services/audio_processing_service.dart';
 
 class AudioRecordingDialog extends StatefulWidget {
@@ -24,7 +25,6 @@ class _AudioRecordingDialogState extends State<AudioRecordingDialog> {
   Duration _recordingDuration = Duration.zero;
   Timer? _durationTimer;
   final _audioProcessingService = AudioProcessingService();
-  RecorderController? _recorderController;
 
   @override
   void initState() {
@@ -33,42 +33,84 @@ class _AudioRecordingDialogState extends State<AudioRecordingDialog> {
   }
 
   Future<void> _initializeRecorder() async {
-    final status = await Permission.microphone.request();
-    if (status != PermissionStatus.granted) {
+    final hasPermission = await PermissionManager.requestMicrophonePermission();
+    if (!hasPermission) {
+      if (!mounted) return;
+
+      if (kIsWeb) {
+        // For web, show a simpler dialog as we can't open settings
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Please allow microphone access in your browser to record audio.'),
+            duration: Duration(seconds: 5),
+          ),
+        );
+        Navigator.of(context).pop();
+        return;
+      }
+
+      final bool shouldOpenSettings = await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Microphone Permission Required'),
+              content: const Text(
+                'This app needs microphone access to record audio. '
+                'Please grant microphone permission in app settings.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Open Settings'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+
+      if (shouldOpenSettings) {
+        await PermissionManager.openAppSettings();
+      }
+
       if (mounted) {
         Navigator.of(context).pop();
+      }
+      return;
+    }
+  }
+
+  void _startRecording() async {
+    try {
+      // Double-check permission before starting recording
+      if (!await PermissionManager.checkMicrophonePermission()) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Microphone permission is required to record audio'),
           ),
         );
+        return;
       }
-      return;
-    }
 
-    _recorderController = RecorderController()
-      ..androidEncoder = AndroidEncoder.aac
-      ..androidOutputFormat = AndroidOutputFormat.mpeg4
-      ..iosEncoder = IosEncoder.kAudioFormatMPEG4AAC
-      ..sampleRate = 44100;
-  }
-
-  void _startRecording() async {
-    try {
       _recordingPath = await _audioProcessingService.startVoiceOverRecording();
       if (_recordingPath != null) {
-        await _recorderController?.record(
-          path: _recordingPath,
-          androidEncoder: AndroidEncoder.aac,
-          androidOutputFormat: AndroidOutputFormat.mpeg4,
-          iosEncoder: IosEncoder.kAudioFormatMPEG4AAC,
-          sampleRate: 44100,
-        );
         setState(() {
           _isRecording = true;
           _recordingDuration = Duration.zero;
         });
         _startDurationTimer();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to start recording. Please try again.'),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -81,7 +123,7 @@ class _AudioRecordingDialogState extends State<AudioRecordingDialog> {
 
   void _pauseRecording() async {
     if (_isRecording) {
-      await _recorderController?.pause();
+      await _audioProcessingService.stopVoiceOverRecording();
       setState(() {
         _isPaused = true;
       });
@@ -91,17 +133,18 @@ class _AudioRecordingDialogState extends State<AudioRecordingDialog> {
 
   void _resumeRecording() async {
     if (_isPaused) {
-      await _recorderController?.record();
-      setState(() {
-        _isPaused = false;
-      });
-      _startDurationTimer();
+      _recordingPath = await _audioProcessingService.startVoiceOverRecording();
+      if (_recordingPath != null) {
+        setState(() {
+          _isPaused = false;
+        });
+        _startDurationTimer();
+      }
     }
   }
 
   void _stopRecording() async {
     try {
-      final path = await _recorderController?.stop();
       await _audioProcessingService.stopVoiceOverRecording();
       _durationTimer?.cancel();
       if (_recordingPath != null) {
@@ -138,7 +181,7 @@ class _AudioRecordingDialogState extends State<AudioRecordingDialog> {
   @override
   void dispose() {
     _durationTimer?.cancel();
-    _recorderController?.dispose();
+    _audioProcessingService.dispose();
     super.dispose();
   }
 
@@ -159,25 +202,22 @@ class _AudioRecordingDialogState extends State<AudioRecordingDialog> {
             ),
             const SizedBox(height: 16),
             if (_isRecording) ...[
-              AudioWaveforms(
-                enableGesture: true,
-                size: Size(MediaQuery.of(context).size.width * 0.7, 50),
-                recorderController: _recorderController!,
-                waveStyle: const WaveStyle(
-                  waveColor: Colors.blue,
-                  extendWaveform: true,
-                  showMiddleLine: false,
+              Container(
+                width: MediaQuery.of(context).size.width * 0.7,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                padding: const EdgeInsets.only(left: 18),
-                margin: const EdgeInsets.symmetric(horizontal: 15),
+                child: Center(
+                  child: Text(
+                    _formatDuration(_recordingDuration),
+                    style: const TextStyle(fontSize: 24),
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
-              Text(
-                _formatDuration(_recordingDuration),
-                style: const TextStyle(fontSize: 24),
-              ),
             ],
-            const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [

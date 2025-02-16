@@ -131,6 +131,9 @@ class MediaBloc extends Bloc<MediaEvent, MediaState> {
     on<AddGeneratedMedia>(_onAddGeneratedMedia);
   }
 
+  // Add getter for mediaRepository
+  MediaRepository get mediaRepository => _mediaRepository;
+
   Future<void> _onStartWatchingProjectMedia(
     StartWatchingProjectMedia event,
     Emitter<MediaState> emit,

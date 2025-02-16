@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../domain/entities/media_asset.dart';
+import '../../domain/entities/project.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -50,15 +51,15 @@ class _UploadMediaDialogState extends State<UploadMediaDialog> {
           listener: (context, state) {
             if (state.status == MediaStatus.success &&
                 state.assets.isNotEmpty) {
-              // Close dialog first to prevent UI jank
-              context.pop();
-              // Show success message
+              // Show success message first
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Media uploaded successfully'),
                   backgroundColor: Colors.green,
                 ),
               );
+              // Then close dialog
+              context.pop();
             } else if (state.status == MediaStatus.error &&
                 state.error != null) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -92,8 +93,25 @@ class _UploadMediaDialogState extends State<UploadMediaDialog> {
                 const SizedBox(height: 24),
                 SizedBox(
                   height: 300,
-                  child: MediaImportWidget(
-                    projectId: widget.projectId,
+                  child: StreamBuilder<DocumentSnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('projects')
+                        .doc(widget.projectId)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      final project = snapshot.hasData &&
+                              snapshot.data?.exists == true
+                          ? Project.fromJson({
+                              ...snapshot.data!.data() as Map<String, dynamic>,
+                              'id': snapshot.data!.id,
+                            })
+                          : Project(id: widget.projectId);
+
+                      return MediaImportWidget(
+                        projectId: widget.projectId,
+                        project: project,
+                      );
+                    },
                   ),
                 ),
               ],
